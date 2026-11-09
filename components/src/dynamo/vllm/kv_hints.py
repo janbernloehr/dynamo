@@ -78,6 +78,19 @@ def _secondary_tiers(engine_args: AsyncEngineArgs) -> list[Mapping[str, Any]]:
     return tiers
 
 
+def kvcr_host_capacity_blocks(engine_args: AsyncEngineArgs) -> int | None:
+    """Return each rank's KVCR host capacity in KV blocks, if the tier config gives it.
+
+    One ``secondary_g2_slots`` slot holds one KV block. vLLM ignores the slot count
+    when ``kvcr_service_socket_path`` is set, so that setup reports nothing.
+    """
+    tiers = [t for t in _secondary_tiers(engine_args) if t.get("type") == "kvcr"]
+    if len(tiers) != 1 or tiers[0].get("kvcr_service_socket_path") is not None:
+        return None
+    slots = tiers[0].get("secondary_g2_slots")
+    return slots if type(slots) is int and slots > 0 else None
+
+
 def _supports_transfer_hint(tier: Mapping[str, Any]) -> bool:
     """Return whether a secondary tier advertises TRANSFER capability."""
     capabilities = tier.get("router_capabilities")

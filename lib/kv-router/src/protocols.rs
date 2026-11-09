@@ -320,6 +320,12 @@ pub trait WorkerConfigLike {
         None
     }
 
+    /// Host-pinned capacity, in blocks, of the cache owner (KVCR instance) attached
+    /// to each data-parallel rank of this worker, if advertised.
+    fn cache_owner_capacity_blocks(&self) -> Option<u64> {
+        None
+    }
+
     fn taints(&self) -> &HashSet<String> {
         &EMPTY_WORKER_TAINTS
     }
@@ -610,6 +616,9 @@ fn update_cache_owner_hash(hasher: &mut blake3::Hasher, owner: CacheOwnerId) {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResidencyProjection {
     exact_owners: FxHashMap<ResidencyOwnerKey, WorkerWithDpRank>,
+    /// Reverse of `exact_owners`. While a worker moves between owners it can
+    /// briefly have two; the smaller key is kept so the map is deterministic.
+    worker_owners: FxHashMap<WorkerWithDpRank, ResidencyOwnerKey>,
 }
 
 impl ResidencyProjection {
@@ -627,7 +636,11 @@ impl ResidencyProjection {
                         proposed: worker,
                     });
                 }
-                _ => {}
+                Some(_) => {}
+                None => {
+                    let owner = projection.worker_owners.entry(worker).or_insert(key);
+                    *owner = (*owner).min(key);
+                }
             }
         }
         Ok(projection)
@@ -648,6 +661,11 @@ impl ResidencyProjection {
 
     pub fn cache_owner_worker(&self, cache_owner: CacheOwnerId) -> Option<WorkerWithDpRank> {
         self.project(ResidencyOwner::cache_owner(cache_owner))
+    }
+
+    /// The cache owner currently projected to `worker`, if any.
+    pub fn cache_owner_of(&self, worker: WorkerWithDpRank) -> Option<ResidencyOwnerKey> {
+        self.worker_owners.get(&worker).copied()
     }
 
     pub fn is_empty(&self) -> bool {

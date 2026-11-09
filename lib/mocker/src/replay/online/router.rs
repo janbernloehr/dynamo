@@ -380,6 +380,7 @@ impl KvReplayRouter {
                 affinity_target: None,
                 pinned_worker: None,
                 allowed_worker_ids: None,
+                cache_owner_usage: None,
                 shared_cache_hits: None,
             })
             .await?;

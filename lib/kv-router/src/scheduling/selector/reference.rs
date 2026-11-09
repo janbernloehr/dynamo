@@ -851,6 +851,7 @@ mod tests {
             pinned_worker: None,
             allowed_worker_ids: None,
             routing_constraints: crate::protocols::RoutingConstraints::default(),
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: None,
         };
@@ -1258,6 +1259,7 @@ mod tests {
                 required_taints: HashSet::from(["mdc-b".to_string()]),
                 preferred_taints: HashMap::new(),
             },
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: None,
         };
@@ -1317,6 +1319,7 @@ mod tests {
                 required_taints: HashSet::from(["mdc-b".to_string()]),
                 preferred_taints: HashMap::new(),
             },
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: None,
         };
@@ -1394,6 +1397,7 @@ mod tests {
                     required_taints: HashSet::from([required_taint.clone()]),
                     preferred_taints: HashMap::new(),
                 },
+                cache_owner_usage: None,
                 shared_cache_hits: None,
                 resp_tx: None,
             };
@@ -1469,6 +1473,7 @@ mod tests {
                 required_taints: HashSet::new(),
                 preferred_taints: HashMap::from([("mdc-a".to_string(), 0.85)]),
             },
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: None,
         };
@@ -1540,6 +1545,7 @@ mod tests {
                 required_taints: HashSet::new(),
                 preferred_taints: HashMap::from([("mdc-a".to_string(), -0.25)]),
             },
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: None,
         };
@@ -1624,6 +1630,7 @@ mod tests {
             pinned_worker: None,
             allowed_worker_ids: None,
             routing_constraints: crate::protocols::RoutingConstraints::default(),
+            cache_owner_usage: None,
             shared_cache_hits: Some(shared_hits),
             resp_tx: Some(tx),
         };
@@ -1702,6 +1709,7 @@ mod tests {
             pinned_worker: None,
             allowed_worker_ids: None,
             routing_constraints: crate::protocols::RoutingConstraints::default(),
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: Some(tx),
         };
@@ -2004,6 +2012,7 @@ mod tests {
             pinned_worker: None,
             allowed_worker_ids: None,
             routing_constraints: crate::protocols::RoutingConstraints::default(),
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: Some(tx),
         };
@@ -2109,6 +2118,7 @@ mod tests {
             pinned_worker: None,
             allowed_worker_ids: None,
             routing_constraints: crate::protocols::RoutingConstraints::default(),
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: Some(tx),
         };

@@ -13,7 +13,10 @@ from dynamo.common.constants import (
     KV_HINT_TRANSFER_WORKER_TYPE_RUNTIME_KEY,
 )
 from dynamo.llm import WorkerType
-from dynamo.vllm.kv_hints import publish_kv_hint_capabilities
+from dynamo.vllm.kv_hints import (
+    kvcr_host_capacity_blocks,
+    publish_kv_hint_capabilities,
+)
 
 pytestmark = [
     pytest.mark.unit,
@@ -360,3 +363,29 @@ def test_publish_kv_hint_capabilities_reads_tier_inside_multi_connector():
         KV_HINT_TRANSFER_SOURCE_CONTROL_ENDPOINTS_RUNTIME_KEY,
         json.dumps({"0": "tcp://127.0.0.1:17771"}),
     )
+
+
+# KVCR host capacity comes from secondary_g2_slots, except for a kvcr-service pool.
+@pytest.mark.parametrize(
+    ("tier", "expected"),
+    [
+        ({"type": "kvcr", "secondary_g2_slots": 1024}, 1024),
+        (
+            {
+                "type": "kvcr",
+                "secondary_g2_slots": 1024,
+                "kvcr_service_socket_path": "/run/kvcr.sock",
+            },
+            None,
+        ),
+        ({"type": "custom", "secondary_g2_slots": 1024}, None),
+    ],
+)
+def test_kvcr_host_capacity_blocks(tier, expected):
+    engine_args = SimpleNamespace(
+        kv_transfer_config=SimpleNamespace(
+            kv_connector_extra_config={"secondary_tiers": [tier]}
+        )
+    )
+
+    assert kvcr_host_capacity_blocks(engine_args) == expected

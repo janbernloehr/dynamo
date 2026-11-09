@@ -18,8 +18,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use crate::indexer::{
-    KvIndexerMetrics, LowerTierContinuation, LowerTierIndexer, LowerTierMatchDetails, MatchDetails,
-    ThreadPoolIndexer, WireTieredMatchDetails, record_unsupported_residency_event,
+    CacheOwnerUsageReader, KvIndexerMetrics, LowerTierContinuation, LowerTierIndexer,
+    LowerTierMatchDetails, MatchDetails, ThreadPoolIndexer, WireTieredMatchDetails,
+    record_unsupported_residency_event,
 };
 use crate::kv_hints::{KvTransferCandidateSource, KvTransferCandidates};
 use crate::protocols::{
@@ -135,6 +136,16 @@ impl LowerTierIndexers {
 
     pub fn record_unsupported_residency_event(&self, event: &RouterEvent) {
         record_unsupported_residency_event(self.metrics.as_deref(), event);
+    }
+
+    /// Host-pinned cache-owner block counts under the current owner projection.
+    /// None until the host-pinned tier receives its first event.
+    pub fn cache_owner_usage(&self) -> Option<CacheOwnerUsageReader> {
+        let host = self.get(StorageTier::HostPinned)?;
+        Some(
+            host.backend()
+                .cache_owner_usage(self.routing_snapshot.load_full()),
+        )
     }
 }
 

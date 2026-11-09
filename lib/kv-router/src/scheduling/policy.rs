@@ -231,6 +231,7 @@ mod tests {
             pinned_worker: None,
             allowed_worker_ids: None,
             routing_constraints: crate::protocols::RoutingConstraints::default(),
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: None,
         }

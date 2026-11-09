@@ -108,6 +108,7 @@ where
             kv_transfer_candidates,
             retain_kv_transfer_chain,
             shared_cache_hits,
+            cache_owner_usage,
         } = request;
         let request = SchedulingRequest {
             mode,
@@ -129,6 +130,7 @@ where
             kv_transfer_candidates,
             retain_kv_transfer_chain,
             shared_cache_hits,
+            cache_owner_usage,
             worker_loads: FxHashMap::default(),
             resp_tx,
         };
@@ -661,6 +663,7 @@ where
             affinity_target: None,
             pinned_worker,
             allowed_worker_ids,
+            cache_owner_usage: None,
             shared_cache_hits,
         })
         .await
@@ -1228,6 +1231,7 @@ mod tests {
             overlap: OverlapSignals::default(),
             kv_transfer_candidates: None,
             retain_kv_transfer_chain: false,
+            cache_owner_usage: None,
             shared_cache_hits: None,
         }
     }

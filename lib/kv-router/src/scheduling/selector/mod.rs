@@ -344,6 +344,7 @@ fn cache_snapshot(request: &SchedulingRequest) -> CacheSnapshot<'_> {
         has_tier_matches: !request.overlap.tier_overlap_blocks.device.is_empty()
             || !request.overlap.tier_overlap_blocks.host_pinned.is_empty()
             || !request.overlap.tier_overlap_blocks.disk.is_empty(),
+        cache_owner_usage: request.cache_owner_usage.as_ref(),
     }
 }
 
@@ -898,6 +899,7 @@ mod test_support {
             pinned_worker: None,
             allowed_worker_ids: None,
             routing_constraints: crate::protocols::RoutingConstraints::default(),
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: None,
         }

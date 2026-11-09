@@ -13,10 +13,10 @@ use crate::ThreadPoolIndexer;
 use crate::approx::PruneConfig;
 use crate::config::{ApproximateCachePolicyKind, KvRouterConfig};
 use crate::indexer::{
-    ApproximateLruIncarnation, ApproximateLruStats, ApproximateRetentionConfig, KvIndexer,
-    KvIndexerInterface, KvIndexerMetrics, KvRouterError, LowerTierIndexers, LowerTierQueryOptions,
-    MatchDetails, RoutingDecisionHashes, SyncIndexer, TieredMatchDetails, TieredMatchProvider,
-    record_unsupported_residency_event,
+    ApproximateLruIncarnation, ApproximateLruStats, ApproximateRetentionConfig,
+    CacheOwnerUsageReader, KvIndexer, KvIndexerInterface, KvIndexerMetrics, KvRouterError,
+    LowerTierIndexers, LowerTierQueryOptions, MatchDetails, RoutingDecisionHashes, SyncIndexer,
+    TieredMatchDetails, TieredMatchProvider, record_unsupported_residency_event,
 };
 use crate::protocols::{
     DpRank, ExternalSequenceBlockHash, KvCacheEventData, LocalBlockHash, OverlapScores,
@@ -319,6 +319,17 @@ impl Indexer {
                 lower_tier.set_residency_routing_snapshot(snapshot)
             }
             Self::Remote { .. } | Self::None => {}
+        }
+    }
+
+    /// Per-worker cache-owner block counts from the local lower-tier index. None for
+    /// a remote indexer and for routing without KV state.
+    pub fn cache_owner_usage(&self) -> Option<CacheOwnerUsageReader> {
+        match self {
+            Self::Single { lower_tier, .. } | Self::Concurrent { lower_tier, .. } => {
+                lower_tier.cache_owner_usage()
+            }
+            Self::Remote { .. } | Self::None => None,
         }
     }
 

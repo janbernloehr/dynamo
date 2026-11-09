@@ -155,6 +155,7 @@ mod tests {
             overlap: OverlapSignals::default(),
             kv_transfer_candidates: None,
             retain_kv_transfer_chain: false,
+            cache_owner_usage: None,
             shared_cache_hits: None,
             worker_loads: Default::default(),
             resp_tx: None,

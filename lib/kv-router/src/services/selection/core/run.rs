@@ -439,6 +439,10 @@ impl SelectionCore {
             allowed_worker_ids,
             routing_constraints,
             shared_cache_hits,
+            cache_owner_usage: entry
+                .reads_cache
+                .then(|| entry.indexer.cache_owner_usage())
+                .flatten(),
         };
         // `booking` guards the booking until it is installed below: any early
         // return or drop before then frees it.

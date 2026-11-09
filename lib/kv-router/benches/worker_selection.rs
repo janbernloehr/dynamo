@@ -233,6 +233,7 @@ fn fixture_with_preferred_taints(
         },
         kv_transfer_candidates: None,
         retain_kv_transfer_chain: false,
+        cache_owner_usage: None,
         shared_cache_hits: None,
         worker_loads,
         resp_tx: None,

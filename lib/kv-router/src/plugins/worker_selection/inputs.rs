@@ -3,10 +3,12 @@
 
 //! Worker input groups, stored snapshots, and component-scoped borrowed views.
 
+use crate::indexer::CacheOwnerUsageReader;
 use crate::protocols::{SharedCacheHits, WorkerConfigLike, WorkerId, WorkerWithDpRank};
 use crate::sequences::WorkerLoadProjection;
 use rustc_hash::FxHashMap;
 use std::cell::OnceCell;
+use std::num::NonZeroU64;
 use std::ops::BitOr;
 
 /// Host-owned row materialized once for the union of component input requirements.
@@ -73,6 +75,24 @@ impl<'a> WorkerCandidate<'a> {
                 data: &self.data.cache,
                 snapshot: self.cache_snapshot,
             })
+    }
+
+    /// Host-pinned KV blocks the router has indexed for the cache owner (KVCR instance)
+    /// attached to this worker, only when this component declared CACHE. Compare with
+    /// [`WorkerInfo::cache_owner_capacity_blocks`].
+    ///
+    /// The count follows the owner's KV events as the router applies them and is read
+    /// live on each call. Events are best effort, so it can differ from the owner's real
+    /// contents: unannounced filling slots and non-main KV groups are missing, and a lost
+    /// Removed event counts until the owner's next recovery. None when the worker has no
+    /// attached owner or the router has no local lower-tier index.
+    pub fn cache_owner_blocks(self) -> Option<u64> {
+        if !self.inputs.contains(WorkerInputs::CACHE) {
+            return None;
+        }
+        self.cache_snapshot
+            .cache_owner_usage?
+            .blocks(self.data.worker)
     }
 
     /// Read this worker's load snapshot only when this component declared LOAD.
@@ -184,7 +204,8 @@ pub struct WorkerInputs(u8);
 impl WorkerInputs {
     /// Request no optional worker inputs.
     pub const NONE: Self = Self(0);
-    /// Request worker KV-cache overlaps and shared-cache lookup results.
+    /// Request worker KV-cache overlaps, shared-cache lookup results, and the blocks held
+    /// by each worker's attached cache owner (KVCR instance).
     pub const CACHE: Self = Self(1 << 0);
     /// Request active-load inputs.
     pub const LOAD: Self = Self(1 << 1);
@@ -231,6 +252,7 @@ impl BitOr for WorkerInputs {
 pub(crate) struct CacheSnapshot<'a> {
     pub(crate) shared_hits: Option<&'a SharedCacheHits>,
     pub(crate) has_tier_matches: bool,
+    pub(crate) cache_owner_usage: Option<&'a CacheOwnerUsageReader>,
 }
 
 /// Rows and request-wide cache facts owned by a reader outside worker selection.
@@ -242,6 +264,7 @@ pub(crate) struct WorkerInputRows {
     capacities: Vec<WorkerCapacity>,
     shared_hits: Option<SharedCacheHits>,
     has_tier_matches: bool,
+    cache_owner_usage: Option<CacheOwnerUsageReader>,
 }
 
 impl WorkerInputRows {
@@ -262,6 +285,11 @@ impl WorkerInputRows {
                 None
             },
             has_tier_matches: cache_snapshot.has_tier_matches,
+            cache_owner_usage: if inputs.contains(WorkerInputs::CACHE) {
+                cache_snapshot.cache_owner_usage.cloned()
+            } else {
+                None
+            },
         }
     }
 
@@ -273,6 +301,7 @@ impl WorkerInputRows {
             capacities: Vec::new(),
             shared_hits: None,
             has_tier_matches: false,
+            cache_owner_usage: None,
         }
     }
 
@@ -281,6 +310,7 @@ impl WorkerInputRows {
         let cache_snapshot = CacheSnapshot {
             shared_hits: self.shared_hits.as_ref(),
             has_tier_matches: self.has_tier_matches,
+            cache_owner_usage: self.cache_owner_usage.as_ref(),
         };
         let info = |row: usize| WorkerInfo::new(self.rows[row].worker, self.capacities[row]);
         read(WorkerCandidates::new(
@@ -387,6 +417,7 @@ pub const DEFAULT_MAX_BATCHED_TOKENS: u64 = 10_000_000;
 pub struct WorkerCapacity {
     max_num_batched_tokens: Option<u64>,
     total_kv_blocks: Option<u64>,
+    cache_owner_capacity_blocks: Option<NonZeroU64>,
 }
 
 impl WorkerCapacity {
@@ -396,12 +427,18 @@ impl WorkerCapacity {
         Self {
             max_num_batched_tokens: max_num_batched_tokens.filter(|&value| value > 0),
             total_kv_blocks: total_kv_blocks.filter(|&value| value > 0),
+            cache_owner_capacity_blocks: None,
         }
     }
 
     /// Read the capacity a worker advertises in its runtime config.
     pub fn of<C: WorkerConfigLike>(config: &C) -> Self {
-        Self::new(config.max_num_batched_tokens(), config.total_kv_blocks())
+        Self {
+            cache_owner_capacity_blocks: config
+                .cache_owner_capacity_blocks()
+                .and_then(NonZeroU64::new),
+            ..Self::new(config.max_num_batched_tokens(), config.total_kv_blocks())
+        }
     }
 
     /// Prefill tokens the rank batches per engine step, when reported.
@@ -414,6 +451,12 @@ impl WorkerCapacity {
     /// the process total divided by the rank count), so treat it as approximate.
     pub fn total_kv_blocks(self) -> Option<u64> {
         self.total_kv_blocks
+    }
+
+    /// Host-pinned capacity, in KV blocks, of the cache owner (KVCR instance) attached to
+    /// this rank, when the worker advertises it; a reported zero means unreported.
+    pub fn cache_owner_capacity_blocks(self) -> Option<u64> {
+        self.cache_owner_capacity_blocks.map(NonZeroU64::get)
     }
 
     /// The budget fractional prefill thresholds are taken of: `max_num_batched_tokens`, or
@@ -458,6 +501,13 @@ impl WorkerInfo {
     /// the process total divided by the rank count), so treat it as approximate.
     pub fn total_kv_blocks(&self) -> Option<u64> {
         self.capacity.total_kv_blocks()
+    }
+
+    /// Host-pinned capacity, in KV blocks, of the cache owner (KVCR instance) attached to
+    /// this rank, when the worker advertises it. Compare with
+    /// [`WorkerCandidate::cache_owner_blocks`].
+    pub fn cache_owner_capacity_blocks(&self) -> Option<u64> {
+        self.capacity.cache_owner_capacity_blocks()
     }
 
     /// Both advertised values, as [`crate::scheduling::BusyThresholds::has_room`] takes them.
@@ -788,6 +838,16 @@ impl<'a> WorkerInputView<'a> {
                 )
             }),
         }
+    }
+
+    /// [`WorkerCandidate::cache_owner_blocks`] for the worker at `row`, when the picker
+    /// declared CACHE; None also for an out-of-range row.
+    pub fn cache_owner_blocks(self, row: usize) -> Option<u64> {
+        let PickerRows::Materialized { candidates, .. } = self.rows else {
+            return None;
+        };
+        let reader = self.cache?.snapshot.cache_owner_usage?;
+        reader.blocks(candidates.get(row)?.worker)
     }
 
     /// Return the number of requests active on the worker at `row`, when the picker declared

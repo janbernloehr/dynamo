@@ -131,6 +131,8 @@ struct SelectionEntry {
     hint_capable_workers: AtomicBool,
     /// Whether the selection policy scores fetchable prefixes (`KV_TRANSFER`).
     scores_kv_transfer: bool,
+    /// Whether the selection policy reads `CACHE`, which includes cache-owner usage.
+    reads_cache: bool,
     scheduler: SelectionScheduler,
     replica_inbox: Option<ReplicaInbox>,
     affinity: OnceCell<SessionAffinity>,

@@ -13,6 +13,7 @@ use super::config::RouterConfigOverride;
 use super::filter::RoutingEligibility;
 use super::overlap::{OverlapSignals, SelectedWorkerTierSnapshot};
 use super::prefill_load::effective_prefill_tokens;
+use crate::indexer::CacheOwnerUsageReader;
 use crate::kv_hints::{KvTransferCandidates, KvTransferSourceChoice};
 pub use crate::protocols::PotentialLoad;
 use crate::protocols::{
@@ -465,6 +466,8 @@ pub struct ScheduleRequest {
     pub kv_transfer_candidates: Option<KvTransferCandidates>,
     pub retain_kv_transfer_chain: bool,
     pub shared_cache_hits: Option<SharedCacheHits>,
+    /// Per-worker cache-owner (KVCR) block counts, for selectors that declare CACHE.
+    pub cache_owner_usage: Option<CacheOwnerUsageReader>,
 }
 
 /// Actor-owned admission request.
@@ -499,6 +502,10 @@ pub struct SchedulingRequest {
     pub kv_transfer_candidates: Option<KvTransferCandidates>,
     pub retain_kv_transfer_chain: bool,
     pub shared_cache_hits: Option<SharedCacheHits>,
+    /// Per-worker cache-owner (KVCR) block counts, read lazily by components that
+    /// declare CACHE. Counts stay live while the request is queued; only the
+    /// owner-to-worker projection is pinned at preparation.
+    pub cache_owner_usage: Option<CacheOwnerUsageReader>,
 
     // Load state computed during admission.
     pub worker_loads: FxHashMap<WorkerWithDpRank, WorkerLoadProjection>,
@@ -715,6 +722,7 @@ mod tests {
             },
             kv_transfer_candidates: None,
             retain_kv_transfer_chain: false,
+            cache_owner_usage: None,
             shared_cache_hits: None,
             worker_loads,
             resp_tx: None,

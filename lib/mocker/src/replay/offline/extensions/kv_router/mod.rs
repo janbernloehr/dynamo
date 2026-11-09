@@ -483,6 +483,7 @@ impl PendingRequest {
                 }),
             allowed_worker_ids: None,
             routing_constraints: RoutingConstraints::default(),
+            cache_owner_usage: None,
             shared_cache_hits: None,
             resp_tx: None,
         }
