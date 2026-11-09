@@ -13,7 +13,7 @@ use axum::{
     body::Body,
     extract::State,
     http::Request,
-    http::{HeaderMap, Method, StatusCode, Uri},
+    http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri},
     middleware::{self, Next},
     response::{
         IntoResponse, Response,
@@ -2750,6 +2750,8 @@ async fn handler_chat_completions(
     // Keep the HTTP-side guard armed while awaiting the detached task. A client
     // disconnect drops this handler, but the task can continue until a backend
     // timeout; that later error must not replace the observed cancellation.
+    // Headers the chat engine sets (`ANNOTATION_RESPONSE_HEADERS`).
+    let response_headers = Arc::new(std::sync::OnceLock::new());
     let response = match tokio::spawn(
         classify_lifecycle_response(
             chat_completions(
@@ -2760,6 +2762,7 @@ async fn handler_chat_completions(
                 lifecycle,
                 request_lifecycle.clone(),
                 terminal.clone(),
+                response_headers.clone(),
             ),
             terminal.clone(),
         )
@@ -2783,7 +2786,7 @@ async fn handler_chat_completions(
     // without need to be cancelled.
     connection_handle.disarm();
 
-    response
+    with_response_headers(response, response_headers.get())
 }
 
 /// Parse typed JSON with the existing control-character recovery and error mapping.
@@ -3209,6 +3212,72 @@ fn is_annotation_frame<T>(e: &Annotated<T>) -> bool {
         && matches!(e.event.as_deref(), Some(tag) if tag != "error")
 }
 
+/// Annotation event a Python chat engine yields, before its first other frame,
+/// to set HTTP response headers: its one comment is a JSON object of header
+/// names to string values. Honored on chat completions when the frontend reads
+/// the stream before committing the response: unary requests, and streaming
+/// ones with a pre-commit check (`DYN_HTTP_PRE_COMMIT_ERROR_PEEK_MS`).
+pub const ANNOTATION_RESPONSE_HEADERS: &str = "http.response_headers";
+
+/// Headers the HTTP layer owns; an engine may not set them.
+const RESERVED_RESPONSE_HEADERS: &[&str] = &[
+    "connection",
+    "content-encoding",
+    "content-length",
+    "content-type",
+    "keep-alive",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "x-request-id",
+];
+
+fn is_response_headers_frame<T>(e: &Annotated<T>) -> bool {
+    e.data.is_none() && e.event.as_deref() == Some(ANNOTATION_RESPONSE_HEADERS)
+}
+
+/// Add the headers an `http.response_headers` frame carries to `headers`,
+/// skipping malformed and reserved ones with a warning.
+fn collect_response_headers<T>(frame: &Annotated<T>, headers: &mut HeaderMap) {
+    let parsed = frame
+        .comment
+        .as_ref()
+        .and_then(|comments| comments.first())
+        .and_then(|comment| serde_json::from_str::<HashMap<String, String>>(comment).ok());
+    let Some(parsed) = parsed else {
+        tracing::warn!("ignoring a malformed {ANNOTATION_RESPONSE_HEADERS} frame");
+        return;
+    };
+    for (name, value) in parsed {
+        match (
+            HeaderName::try_from(name.as_str()),
+            HeaderValue::try_from(value),
+        ) {
+            (Ok(header), Ok(value)) if !RESERVED_RESPONSE_HEADERS.contains(&header.as_str()) => {
+                headers.append(header, value);
+            }
+            _ => tracing::warn!(header = %name, "ignoring a response header an engine set"),
+        }
+    }
+}
+
+/// Add an engine's response headers to the response, error responses included.
+fn with_response_headers(
+    response: Result<Response, ErrorResponse>,
+    headers: Option<&HeaderMap>,
+) -> Result<Response, ErrorResponse> {
+    let Some(headers) = headers.filter(|headers| !headers.is_empty()) else {
+        return response;
+    };
+    let mut response = response.unwrap_or_else(IntoResponse::into_response);
+    for (name, value) in headers {
+        response.headers_mut().append(name.clone(), value.clone());
+    }
+    Ok(response)
+}
+
 /// Cap on how many leading annotation frames `check_for_backend_error`
 /// will buffer before giving up the inspection. A pathological backend
 /// (or attacker who can influence the engine output) that emits only
@@ -3237,6 +3306,19 @@ pub(super) async fn check_for_backend_error_info<T>(
 where
     T: serde::Serialize + Send + 'static,
 {
+    check_for_backend_error_with_headers(stream, check, None).await
+}
+
+/// [`check_for_backend_error_info`] that also takes leading
+/// [`ANNOTATION_RESPONSE_HEADERS`] frames off the stream into `headers`.
+async fn check_for_backend_error_with_headers<T>(
+    stream: impl futures::Stream<Item = Annotated<T>> + Send + 'static,
+    check: BackendErrorCheck,
+    mut headers: Option<&mut HeaderMap>,
+) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Annotated<T>> + Send>>, BackendErrorInfo>
+where
+    T: serde::Serialize + Send + 'static,
+{
     use futures::stream::StreamExt;
 
     let mut stream = Box::pin(stream);
@@ -3248,6 +3330,7 @@ where
         BackendErrorCheck::UntilFirstEvent => None,
     };
     let mut buffered: Vec<Annotated<T>> = Vec::new();
+    let mut leading_annotations = 0;
 
     loop {
         let next = match deadline {
@@ -3266,8 +3349,14 @@ where
             return Ok(Box::pin(futures::stream::iter(buffered)));
         };
 
-        if is_annotation_frame(&event) && buffered.len() < MAX_LEADING_ANNOTATIONS {
-            buffered.push(event);
+        if is_annotation_frame(&event) && leading_annotations < MAX_LEADING_ANNOTATIONS {
+            leading_annotations += 1;
+            match headers.as_deref_mut() {
+                Some(headers) if is_response_headers_frame(&event) => {
+                    collect_response_headers(&event, headers);
+                }
+                _ => buffered.push(event),
+            }
             continue;
         }
 
@@ -3693,6 +3782,7 @@ fn apply_chat_completions_request_template(
 ///
 /// Note: For all requests, streaming or non-streaming, we always call the engine with streaming enabled. For
 /// non-streaming requests, we will fold the stream into a single response as part of this handler.
+#[allow(clippy::too_many_arguments)]
 async fn chat_completions(
     state: Arc<service_v2::State>,
     template: Option<RequestTemplate>,
@@ -3701,6 +3791,7 @@ async fn chat_completions(
     lifecycle: LifecycleTrace,
     request_lifecycle: tracing::Span,
     terminal: LifecycleTerminal,
+    response_headers: Arc<std::sync::OnceLock<HeaderMap>>,
 ) -> Result<Response, ErrorResponse> {
     // Covers the handler body only: template resolution, validation, engine
     // dispatch and response commit. For a streaming request the SSE stream
@@ -3920,15 +4011,24 @@ async fn chat_completions(
         // `UntilFirstEvent` ends on the first event or on the client
         // disconnecting, and on nothing else.
         let stream = custom_tools.stream(stream);
-        let stream = until_client_disconnects(
-            check_for_backend_error_info(stream, state.streaming_backend_error_check()),
+        let mut engine_headers = HeaderMap::new();
+        let checked = until_client_disconnects(
+            check_for_backend_error_with_headers(
+                stream,
+                state.streaming_backend_error_check(),
+                Some(&mut engine_headers),
+            ),
             &ctx,
         )
-        .await
-        .inspect_err(|err_response| {
-            log_pre_commit_error(&request_id, err_response);
-            inflight_guard.mark_error(extract_error_type_from_response(err_response));
-        })?;
+        .await;
+        let _ = response_headers.set(engine_headers);
+        // Header frames the check did not take must not reach the SSE body.
+        let stream = checked
+            .inspect_err(|err_response| {
+                log_pre_commit_error(&request_id, err_response);
+                inflight_guard.mark_error(extract_error_type_from_response(err_response));
+            })?
+            .filter(|event| std::future::ready(!is_response_headers_frame(event)));
 
         let mut http_queue_guard = Some(http_queue_guard);
         let tool_dispatch_enabled = state.streaming_tool_dispatch_enabled();
@@ -4126,8 +4226,17 @@ async fn chat_completions(
         });
 
         // Check first event for backend errors before aggregating (non-streaming only)
-        let stream = check_for_backend_error(stream, BackendErrorCheck::UntilFirstEvent)
-            .await
+        let mut engine_headers = HeaderMap::new();
+        let checked = check_for_backend_error_with_headers(
+            stream,
+            BackendErrorCheck::UntilFirstEvent,
+            Some(&mut engine_headers),
+        )
+        .await;
+        let _ = response_headers.set(engine_headers);
+        // The fold ignores any header frames the check did not take.
+        let stream = checked
+            .map_err(|error| backend_error_response(error, true))
             .map_err(|error_response| {
                 tracing::error!(request_id, "Backend error detected: {:?}", error_response);
                 inflight_guard.mark_error(extract_error_type_from_response(&error_response));
@@ -9485,6 +9594,56 @@ mod tests {
         assert_eq!(response.0, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(response.1.code, StatusCode::SERVICE_UNAVAILABLE.as_u16());
         assert!(!response.1.message.contains("/srv/private"));
+    }
+
+    #[tokio::test]
+    async fn test_check_for_backend_error_takes_response_headers_frames() {
+        use futures::{StreamExt, stream};
+
+        type Event = Annotated<String>;
+        let headers_frame = || Event {
+            data: None,
+            id: None,
+            event: Some(ANNOTATION_RESPONSE_HEADERS.to_string()),
+            comment: Some(vec![
+                r#"{"x-capture-refused": "call-1", "content-type": "text/plain"}"#.to_string(),
+            ]),
+            error: None,
+        };
+        let error_event = Event {
+            data: None,
+            id: None,
+            event: Some("error".to_string()),
+            comment: Some(vec!["refused".to_string()]),
+            error: None,
+        };
+
+        for (rest, is_error) in [
+            (Event::from_data("chunk".to_string()), false),
+            (error_event, true),
+        ] {
+            let mut headers = HeaderMap::new();
+            let result = check_for_backend_error_with_headers(
+                stream::iter(vec![headers_frame(), rest]),
+                BackendErrorCheck::UntilFirstEvent,
+                Some(&mut headers),
+            )
+            .await;
+
+            // The engine's header is kept, on an error too; a reserved one is not.
+            assert_eq!(headers.get("x-capture-refused").unwrap(), "call-1");
+            assert!(!headers.contains_key("content-type"));
+            match result {
+                Ok(stream) => {
+                    assert!(!is_error);
+                    // The frame was taken off the stream.
+                    let events: Vec<_> = stream.collect().await;
+                    assert_eq!(events.len(), 1);
+                    assert!(events[0].data.is_some());
+                }
+                Err(_) => assert!(is_error),
+            }
+        }
     }
 
     #[tokio::test]

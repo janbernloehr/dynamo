@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import AsyncIterator
+import json
+from collections.abc import AsyncIterator, Mapping
 from typing import Any, Protocol
 
 from dynamo._core import AisPerfConfig as AisPerfConfig
@@ -70,6 +71,24 @@ from .exceptions import WorkerOverloaded as WorkerOverloaded
 class RoutedEngine(Protocol):
     async def generate(self, request: Any, **kwargs: Any) -> AsyncIterator[Any]:
         ...
+
+
+def response_headers(headers: Mapping[str, str]) -> dict[str, Any]:
+    """A frame that sets HTTP response headers, for a Python chat engine to yield.
+
+    Yield it before any other frame, then the response chunks or an error. Only
+    ``/v1/chat/completions`` applies the headers, error responses included, and
+    only when the frontend reads the stream before committing the response:
+    unary requests, and streaming ones when ``DYN_HTTP_PRE_COMMIT_ERROR_PEEK_MS``
+    is set. ``/v1/responses`` and ``/v1/messages`` drop the frame. Headers the
+    HTTP layer owns (``content-type``, ``content-length``, ``x-request-id``,
+    hop-by-hop headers) are ignored.
+    """
+    return {
+        "_dynamo_annotated": True,
+        "event": "http.response_headers",
+        "comment": [json.dumps(dict(headers))],
+    }
 
 
 # Backward-compatible aliases
