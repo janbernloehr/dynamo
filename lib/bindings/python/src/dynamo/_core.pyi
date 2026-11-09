@@ -2103,6 +2103,11 @@ def _convert_preprocessed_request(
     """
     ...
 
+def _raise_routed_http_error(code: int, message: str) -> None:
+    """Test hook: raise what a routed engine's response stream raises for a
+    backend `HttpError(code, message)`."""
+    ...
+
 
 class WorkerType:
     """
@@ -3393,6 +3398,17 @@ class WorkerUnavailable(DynamoException):
 
     Raised by `RoutedEngine.generate`, for example while prefill routing is
     still activating. Re-raise it unchanged to keep the 503.
+    """
+
+    ...
+
+class RoutedEngineError(ValueError):
+    """A backend error raised by a routed request's response stream
+    (`RoutedEngine.generate`, `Client.generate`).
+
+    Raised for every classified error except a validation error, which raises
+    `InvalidArgument`. An engine or handler that lets it escape answers with
+    the backend's status, because the original error is restored.
     """
 
     ...

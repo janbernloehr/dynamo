@@ -402,6 +402,7 @@ fn register_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
         llm::routed_engine::_convert_preprocessed_request,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(errors::_raise_routed_http_error, m)?)?;
     #[cfg(feature = "select-service")]
     m.add_class::<llm::kv::SelectionService>()?;
     #[cfg(feature = "select-service")]

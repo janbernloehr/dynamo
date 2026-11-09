@@ -43,8 +43,53 @@ pub fn queue_rejection_to_pyerr(rejection: dynamo_kv_router::scheduling::QueueRe
 // gets the intended HTTP 503 instead of a generic 500.
 pyo3::create_exception!(dynamo._core, WorkerUnavailable, DynamoException);
 
+// Raised by a routed request's response stream (`RoutedEngine.generate`,
+// `Client.generate`) for any other classified backend error. It subclasses
+// `ValueError`, which the stream raised for these before, and keeps the
+// backend's `DynamoError`: an engine or handler that lets it escape answers with
+// the backend's status, because `map_python_exception` and `py_err_to_dynamo`
+// restore the original error.
+pyo3::create_exception!(
+    dynamo._core,
+    RoutedEngineError,
+    pyo3::exceptions::PyValueError
+);
+
+/// Holds the JSON-serialized `DynamoError` a [`RoutedEngineError`] carries.
+const ROUTED_ENGINE_ERROR_ATTR: &str = "_dynamo_error";
+
+/// Raise a backend's `DynamoError` in Python as a [`RoutedEngineError`] with
+/// `message`, the text of the exception it replaces.
+pub(crate) fn routed_engine_error(error: &DynamoError, message: String) -> PyErr {
+    let err = RoutedEngineError::new_err(message);
+    let attached = serde_json::to_string(error)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+        .and_then(|serialized| {
+            Python::with_gil(|py| err.value(py).setattr(ROUTED_ENGINE_ERROR_ATTR, serialized))
+        });
+    match attached {
+        Ok(()) => err,
+        Err(error) => error,
+    }
+}
+
+/// The backend's original `DynamoError`, when `err` is a [`RoutedEngineError`].
+pub(crate) fn routed_engine_error_to_dynamo(py: Python<'_>, err: &PyErr) -> Option<DynamoError> {
+    if !err.is_instance_of::<RoutedEngineError>(py) {
+        return None;
+    }
+    let serialized: String = err
+        .value(py)
+        .getattr(ROUTED_ENGINE_ERROR_ATTR)
+        .ok()?
+        .extract()
+        .ok()?;
+    serde_json::from_str(&serialized).ok()
+}
+
 /// Convert a routed-pipeline error to a Python exception, keeping the
-/// `WorkerUnavailable` and `InvalidArgument` class that the generic [`crate::to_pyerr`] would drop.
+/// `WorkerUnavailable` and `InvalidArgument` class that the generic [`crate::to_pyerr`] would drop,
+/// and any other classified error as a [`RoutedEngineError`].
 pub fn routed_error_to_pyerr(err: anyhow::Error) -> PyErr {
     if is_worker_unavailable(err.as_ref()) {
         return WorkerUnavailable::new_err(err.to_string());
@@ -52,7 +97,21 @@ pub fn routed_error_to_pyerr(err: anyhow::Error) -> PyErr {
     if let Some(message) = public_invalid_argument_message(err.as_ref()) {
         return InvalidArgument::new_err(message);
     }
+    if let Some(error) = find_dynamo_error(err.as_ref()) {
+        return routed_engine_error(error, err.to_string());
+    }
     crate::to_pyerr(err)
+}
+
+fn find_dynamo_error<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a DynamoError> {
+    let mut current = Some(error);
+    while let Some(cause) = current {
+        if let Some(error) = cause.downcast_ref::<DynamoError>() {
+            return Some(error);
+        }
+        current = cause.source();
+    }
+    None
 }
 
 fn is_worker_unavailable(error: &(dyn std::error::Error + 'static)) -> bool {
@@ -158,6 +217,7 @@ macro_rules! define_dynamo_exceptions {
                 m.py().get_type::<SelectionServiceError>(),
             )?;
             m.add("WorkerUnavailable", m.py().get_type::<WorkerUnavailable>())?;
+            m.add("RoutedEngineError", m.py().get_type::<RoutedEngineError>())?;
             $(
                 m.add(stringify!($name), m.py().get_type::<$name>())?;
             )*
@@ -202,24 +262,27 @@ fn invalid_request_client_message(error: &DynamoError) -> Option<String> {
     })
 }
 
-/// Preserve validation errors across Rust-to-Python streams: a classified
-/// InvalidRequest raises a typed `InvalidArgument`, carrying the producer's
-/// public message or the generic label when there is none. Other errors
-/// retain the iterator's existing `ValueError` behavior; diagnostic text must
-/// never be promoted into a public `InvalidArgument` message.
+/// Preserve errors across Rust-to-Python streams: a classified InvalidRequest
+/// raises a typed `InvalidArgument`, carrying the producer's public message or
+/// the generic label when there is none; diagnostic text must never be promoted
+/// into a public `InvalidArgument` message. Any other error raises a
+/// [`RoutedEngineError`] that keeps the backend's `DynamoError`.
 pub(crate) fn check_response_error<R>(response: Annotated<R>) -> PyResult<Annotated<R>> {
-    if response.is_error()
-        && let Some(message) = response
-            .error
-            .as_ref()
-            .and_then(invalid_request_client_message)
+    if !response.is_error() {
+        return Ok(response);
+    }
+    if let Some(message) = response
+        .error
+        .as_ref()
+        .and_then(invalid_request_client_message)
     {
         return Err(InvalidArgument::new_err(message));
     }
-
-    response
-        .ok()
-        .map_err(pyo3::exceptions::PyValueError::new_err)
+    let error = response
+        .into_data()
+        .err()
+        .unwrap_or_else(|| DynamoError::msg("unknown error"));
+    Err(routed_engine_error(&error, error.to_string()))
 }
 
 fn public_invalid_argument_message(err: &(dyn std::error::Error + 'static)) -> Option<String> {
@@ -231,6 +294,15 @@ fn public_invalid_argument_message(err: &(dyn std::error::Error + 'static)) -> O
         current = error.source();
     }
     None
+}
+
+/// Test hook: raise what a routed engine's response stream raises for the error
+/// event a backend `HttpError(code, message)` produces.
+#[pyfunction]
+pub fn _raise_routed_http_error(code: u16, message: String) -> PyResult<()> {
+    let mut response = Annotated::<()>::from_error(String::new());
+    response.error = Some(build_http_like_error(code, message));
+    check_response_error(response).map(|_| ())
 }
 
 /// Read `(code, message)` off a Python exception carrying an HTTP-style
