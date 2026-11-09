@@ -24,7 +24,7 @@ import os
 import signal
 import sys
 from argparse import Namespace
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import uvloop
 
@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 MIN_INITIAL_WORKERS_ENV = "DYN_ROUTER_MIN_INITIAL_WORKERS"
 SESSION_AFFINITY_MAX_ENTRIES_ENV = "DYN_ROUTER_SESSION_AFFINITY_MAX_ENTRIES"
 FRONTEND_ROUTE_ENTRYPOINT_GROUP = "dynamo.frontend.routes"
+CHAT_PROCESSOR_ENTRYPOINT_GROUP = "dynamo.frontend.chat_processors"
 
 # The frontend's TCP listener can exhaust the default soft RLIMIT_NOFILE (1024 on
 # most distros) under high concurrency (see the accept() loop in
@@ -133,12 +134,10 @@ def setup_sglang_engine_factory(
     )
 
 
-def _frontend_route_extension_entry_points() -> list[importlib.metadata.EntryPoint]:
-    """Return the entry points registered under the frontend-route group."""
+def _entry_points(group: str) -> list[importlib.metadata.EntryPoint]:
+    """Return the entry points registered under ``group``."""
     # `EntryPoints.select` is the supported API on the Python >= 3.10 floor.
-    return list(
-        importlib.metadata.entry_points().select(group=FRONTEND_ROUTE_ENTRYPOINT_GROUP)
-    )
+    return list(importlib.metadata.entry_points().select(group=group))
 
 
 def _normalize_frontend_routes(
@@ -169,48 +168,43 @@ def _normalize_frontend_routes(
     return routes
 
 
-def _resolve_frontend_route_provider(extension_name: str, entry_points: list) -> Any:
-    """Resolve a ``--frontend-route-extension`` value to its provider callable.
+def _resolve_provider(name: str, entry_points: list, *, group: str, kind: str) -> Any:
+    """Resolve a ``--frontend-route-extension`` or ``--dyn-chat-processor`` value.
 
-    A registered entry-point name (in the ``dynamo.frontend.routes`` group)
-    takes precedence. If the value is not a registered name and is unambiguously
-    a ``module:function`` path (contains ``:``), it is imported directly. Gating
-    the fallback on ``:`` keeps a mistyped name from silently turning into an
-    import attempt, and still surfaces the ``Available: ...`` list otherwise.
+    A registered entry-point name (in ``group``) takes precedence. If the value
+    is not a registered name and is unambiguously a ``module:function`` path
+    (contains ``:``), it is imported directly. Gating the fallback on ``:`` keeps
+    a mistyped name from silently turning into an import attempt, and still
+    surfaces the ``Available: ...`` list otherwise. ``kind`` names the flag's
+    subject in error messages.
     """
-    matches = [ep for ep in entry_points if ep.name == extension_name]
+    matches = [ep for ep in entry_points if ep.name == name]
     if len(matches) > 1:
-        raise ValueError(
-            f"Ambiguous frontend route extension '{extension_name}' in entry point "
-            f"group '{FRONTEND_ROUTE_ENTRYPOINT_GROUP}'"
-        )
+        raise ValueError(f"Ambiguous {kind} '{name}' in entry point group '{group}'")
     if matches:
         return matches[0].load()
 
-    if ":" in extension_name:
-        module_path, _, attr = extension_name.partition(":")
+    if ":" in name:
+        module_path, _, attr = name.partition(":")
         try:
             obj: Any = importlib.import_module(module_path)
         except ImportError as exc:
             raise ValueError(
-                f"Could not import module '{module_path}' for frontend route "
-                f"extension '{extension_name}'"
+                f"Could not import module '{module_path}' for {kind} '{name}'"
             ) from exc
         try:
             for part in attr.split("."):
                 obj = getattr(obj, part)
         except AttributeError as exc:
             raise ValueError(
-                f"Module '{module_path}' has no attribute '{attr}' for frontend "
-                f"route extension '{extension_name}'"
+                f"Module '{module_path}' has no attribute '{attr}' for {kind} '{name}'"
             ) from exc
         return obj
 
     available = ", ".join(sorted(ep.name for ep in entry_points)) or "<none>"
     raise ValueError(
-        f"Unknown frontend route extension '{extension_name}' in entry point "
-        f"group '{FRONTEND_ROUTE_ENTRYPOINT_GROUP}'. Available: {available}. "
-        f"Pass a registered name or a 'module:function' path."
+        f"Unknown {kind} '{name}' in entry point group '{group}'. "
+        f"Available: {available}. Pass a registered name or a 'module:function' path."
     )
 
 
@@ -229,10 +223,15 @@ def load_frontend_route_extensions(extension_names: list[str]) -> list[FrontendR
     # routes appended only once, preserving first-seen order.
     unique_names = list(dict.fromkeys(extension_names))
 
-    entry_points = _frontend_route_extension_entry_points()
+    entry_points = _entry_points(FRONTEND_ROUTE_ENTRYPOINT_GROUP)
     routes: list[FrontendRoute] = []
     for extension_name in unique_names:
-        provider = _resolve_frontend_route_provider(extension_name, entry_points)
+        provider = _resolve_provider(
+            extension_name,
+            entry_points,
+            group=FRONTEND_ROUTE_ENTRYPOINT_GROUP,
+            kind="frontend route extension",
+        )
         if not callable(provider):
             raise TypeError(
                 f"Frontend route extension '{extension_name}' must resolve to a callable"
@@ -240,6 +239,30 @@ def load_frontend_route_extensions(extension_names: list[str]) -> list[FrontendR
         routes.extend(_normalize_frontend_routes(extension_name, provider()))
 
     return routes
+
+
+def setup_custom_chat_engine_factory(config: FrontendConfig) -> Callable[..., Any]:
+    """Resolve a custom ``--dyn-chat-processor`` and build its chat engine factory.
+
+    The provider is called once, inside the event loop, as
+    ``provider(config, options)``, where ``options`` is the
+    ``--dyn-chat-processor-config`` object. It returns the async
+    ``chat_engine_factory(instance_id, mdc, routed_engine)`` the frontend calls
+    for each worker set.
+    """
+    provider = _resolve_provider(
+        config.chat_processor,
+        _entry_points(CHAT_PROCESSOR_ENTRYPOINT_GROUP),
+        group=CHAT_PROCESSOR_ENTRYPOINT_GROUP,
+        kind="chat processor",
+    )
+    factory = provider(config, config.chat_processor_config or {})
+    if not callable(factory):
+        raise TypeError(
+            f"Chat processor '{config.chat_processor}' must return a callable "
+            "chat engine factory"
+        )
+    return factory
 
 
 def _fold_vllm_default_chat_template_kwargs(
@@ -506,6 +529,8 @@ async def async_main():
             config, sglang_flags
         ).chat_engine_factory
         kwargs["chat_engine_factory"] = chat_engine_factory
+    elif config.chat_processor != "dynamo":
+        kwargs["chat_engine_factory"] = setup_custom_chat_engine_factory(config)
 
     if config.router_prefill_load_model == "ais":
         kwargs["ais_perf_config"] = AisPerfConfig(**config.ais_perf_kwargs())
