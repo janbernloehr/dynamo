@@ -365,27 +365,31 @@ def test_publish_kv_hint_capabilities_reads_tier_inside_multi_connector():
     )
 
 
-# KVCR host capacity comes from secondary_g2_slots, except for a kvcr-service pool.
+# KVCR host capacity is secondary_g2_slots offload chunks, counted in router blocks,
+# except for a kvcr-service pool.
+_KVCR_TIER = {"type": "kvcr", "secondary_g2_slots": 1024}
+
+
 @pytest.mark.parametrize(
-    ("tier", "expected"),
+    ("extra_config", "expected"),
     [
-        ({"type": "kvcr", "secondary_g2_slots": 1024}, 1024),
+        ({"secondary_tiers": [_KVCR_TIER]}, 1024),
+        ({"blocks_per_chunk": 4, "secondary_tiers": [_KVCR_TIER]}, 4096),
+        ({"block_size": 64, "secondary_tiers": [_KVCR_TIER]}, 4096),
         (
             {
-                "type": "kvcr",
-                "secondary_g2_slots": 1024,
-                "kvcr_service_socket_path": "/run/kvcr.sock",
+                "secondary_tiers": [
+                    {**_KVCR_TIER, "kvcr_service_socket_path": "/run/kvcr.sock"}
+                ]
             },
             None,
         ),
-        ({"type": "custom", "secondary_g2_slots": 1024}, None),
+        ({"secondary_tiers": [{**_KVCR_TIER, "type": "custom"}]}, None),
     ],
 )
-def test_kvcr_host_capacity_blocks(tier, expected):
+def test_kvcr_host_capacity_blocks(extra_config, expected):
     engine_args = SimpleNamespace(
-        kv_transfer_config=SimpleNamespace(
-            kv_connector_extra_config={"secondary_tiers": [tier]}
-        )
+        kv_transfer_config=SimpleNamespace(kv_connector_extra_config=extra_config)
     )
 
-    assert kvcr_host_capacity_blocks(engine_args) == expected
+    assert kvcr_host_capacity_blocks(engine_args, 16, 16) == expected

@@ -139,8 +139,12 @@ impl LowerTierIndexers {
     }
 
     /// Host-pinned cache-owner block counts under the current owner projection.
-    /// None until the host-pinned tier receives its first event.
+    /// None until a cache owner is projected to a worker and the host-pinned tier
+    /// receives its first event. Without a projected owner this costs one `ArcSwap` load.
     pub fn cache_owner_usage(&self) -> Option<CacheOwnerUsageReader> {
+        if self.routing_snapshot.load().projection().is_empty() {
+            return None;
+        }
         let host = self.get(StorageTier::HostPinned)?;
         Some(
             host.backend()

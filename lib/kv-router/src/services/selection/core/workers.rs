@@ -343,10 +343,9 @@ impl SelectionCore {
                     self.worker_type,
                     key.as_ref(),
                 );
-                let selector_inputs =
-                    WorkerSelector::<SelectionWorkerConfig>::required_worker_inputs(&selector);
-                let scores_kv_transfer = selector_inputs.contains(WorkerInputs::KV_TRANSFER);
-                let reads_cache = selector_inputs.contains(WorkerInputs::CACHE);
+                let scores_kv_transfer =
+                    WorkerSelector::<SelectionWorkerConfig>::required_worker_inputs(&selector)
+                        .contains(WorkerInputs::KV_TRANSFER);
                 let profile = self
                     .kv_router_config
                     .policy_profile(Some(&key.model_name))
@@ -378,7 +377,6 @@ impl SelectionCore {
                     workers_tx,
                     hint_capable_workers: AtomicBool::new(false),
                     scores_kv_transfer,
-                    reads_cache,
                     scheduler,
                     replica_inbox,
                     affinity: OnceCell::new(),

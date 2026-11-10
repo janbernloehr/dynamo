@@ -1005,7 +1005,9 @@ async def register_vllm_model(
         num_gpu_blocks = 0
     runtime_config.total_kv_blocks = per_rank_kv_blocks(num_gpu_blocks, dp_range[1])
     runtime_config.cache_owner_capacity_blocks = kvcr_host_capacity_blocks(
-        config.engine_args
+        config.engine_args,
+        runtime_values["block_size"],
+        runtime_values["kv_event_block_size"],
     )
     runtime_config.max_num_seqs = runtime_values["max_num_seqs"]
     runtime_config.max_num_batched_tokens = runtime_values["max_num_batched_tokens"]
