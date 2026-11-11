@@ -4,6 +4,7 @@
 """Metrics-focused SGLang processor tests with lightweight SGLang stubs."""
 
 import asyncio
+import builtins
 import importlib
 import sys
 import types
@@ -54,7 +55,7 @@ def _install_module(install_module, name: str, **attrs):
     return install_module(name, **attrs)
 
 
-def _install_sglang_stubs(install_module):
+def _install_sglang_stubs(install_module, tokenizer_module):
     class _Function:
         pass
 
@@ -136,7 +137,7 @@ def _install_sglang_stubs(install_module):
     _install_module(install_module, "sglang.srt.utils")
     _install_module(
         install_module,
-        "sglang.srt.utils.hf_transformers_utils",
+        tokenizer_module,
         get_tokenizer=lambda *args, **kwargs: None,
     )
 
@@ -154,9 +155,9 @@ class _PostProcessor:
         }
 
 
-def _load_processor_module(module_stubs):
+def _load_processor_module(module_stubs, tokenizer_module="sglang.srt.hf_transformers"):
     install_module, remove_module = module_stubs
-    _install_sglang_stubs(install_module)
+    _install_sglang_stubs(install_module, tokenizer_module)
     _install_module(install_module, "dynamo._internal", ModelDeploymentCard=object)
     # Importing common.utils initializes native bindings absent from this fixture.
     _install_module(
@@ -207,6 +208,44 @@ def _load_processor_module(module_stubs):
     )
     remove_module("dynamo.frontend.sglang_processor")
     return importlib.import_module("dynamo.frontend.sglang_processor")
+
+
+@pytest.mark.parametrize(
+    "tokenizer_module",
+    [
+        "sglang.srt.hf_transformers",
+        "sglang.srt.utils.hf_transformers",
+        "sglang.srt.utils.hf_transformers_utils",
+    ],
+)
+def test_get_tokenizer_module_layouts(module_stubs, tokenizer_module):
+    module = _load_processor_module(module_stubs, tokenizer_module)
+
+    assert module.get_tokenizer is sys.modules[tokenizer_module].get_tokenizer
+
+
+@pytest.mark.parametrize(
+    "tokenizer_module",
+    ["sglang.srt.hf_transformers", "sglang.srt.utils.hf_transformers"],
+)
+def test_get_tokenizer_preserves_dependency_errors(
+    module_stubs, monkeypatch, tokenizer_module
+):
+    original_import = builtins.__import__
+    missing_dependency = ModuleNotFoundError(
+        "No module named 'tokenizer_dependency'", name="tokenizer_dependency"
+    )
+
+    def import_with_missing_dependency(name, *args, **kwargs):
+        if name == tokenizer_module:
+            raise missing_dependency
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_with_missing_dependency)
+    with pytest.raises(ModuleNotFoundError) as caught:
+        _load_processor_module(module_stubs, tokenizer_module)
+
+    assert caught.value is missing_dependency
 
 
 def test_stream_embeds_typed_llm_metrics(module_stubs):
