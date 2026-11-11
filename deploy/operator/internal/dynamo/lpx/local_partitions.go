@@ -19,45 +19,6 @@ import (
 
 const localPartitionIDsEnv = "LPX_LOCAL_PARTITION_IDS"
 
-// selectRemotePartitions filters partitions, the scheduler reservations derived
-// from build, to those that remain on LPUs and returns the sorted runtime
-// partition IDs that run on the Cyborg GPU. build is a nonnil physical build that
-// has not collapsed its selected prop-sync chains. A nil selection returns
-// partitions unchanged. No input is mutated.
-func selectRemotePartitions(
-	selection *dynamov1beta1.LPXLocalPartitions,
-	pipeline Pipeline,
-	build *Build,
-	partitions []buildPartition,
-) ([]buildPartition, []int, error) {
-	if selection == nil {
-		return partitions, nil, nil
-	}
-
-	// A selected prop-sync chain is one runtime partition owned by its first member.
-	runtimeOwner := make(map[int]int, len(build.partitions))
-	for _, partition := range build.partitions {
-		runtimeOwner[partition.sourcePartitionID] = partition.sourcePartitionID
-	}
-	for _, chain := range build.selectedPropSyncChains {
-		for _, member := range chain {
-			runtimeOwner[member] = chain[0]
-		}
-	}
-	local, err := selectLocalRuntimePartitions(selection, pipeline, runtimeOwner)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	remote := make([]buildPartition, 0, len(partitions))
-	for _, partition := range partitions {
-		if !local[runtimeOwner[partition.sourcePartitionID]] {
-			remote = append(remote, partition)
-		}
-	}
-	return remote, slices.Sorted(maps.Keys(local)), nil
-}
-
 func selectRemoteUnits(
 	selection *dynamov1beta1.LPXLocalPartitions,
 	pipeline Pipeline,
@@ -150,13 +111,10 @@ func applyLocalPartitionIDs(container *corev1.Container, projection *ModelProjec
 	for index, id := range projection.localPartitionIDs {
 		ids[index] = strconv.Itoa(id)
 	}
-	publish := len(ids) > 0 || len(container.EnvFrom) > 0 || projection.placesLPUUnits()
 
 	// Kubernetes expands environment references in order; publish the selection before authored bindings.
 	env := make([]corev1.EnvVar, 0, len(container.Env)+1)
-	if publish {
-		env = append(env, corev1.EnvVar{Name: localPartitionIDsEnv, Value: strings.Join(ids, ",")})
-	}
+	env = append(env, corev1.EnvVar{Name: localPartitionIDsEnv, Value: strings.Join(ids, ",")})
 	for _, variable := range container.Env {
 		if variable.Name != localPartitionIDsEnv {
 			env = append(env, variable)

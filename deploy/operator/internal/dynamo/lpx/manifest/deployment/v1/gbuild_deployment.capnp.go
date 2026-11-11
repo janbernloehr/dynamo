@@ -10,7 +10,7 @@ import (
 
 // Constants defined in gbuild_deployment.capnp.
 const (
-	CurrentContractRevision = uint32(1)
+	CurrentContractRevision = uint32(2)
 )
 
 type Deployment capnp.Struct
@@ -732,12 +732,12 @@ type DeploymentInfo capnp.Struct
 const DeploymentInfo_TypeID = 0xfd3ce92fb33e4ab2
 
 func NewDeploymentInfo(s *capnp.Segment) (DeploymentInfo, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
 	return DeploymentInfo(st), err
 }
 
 func NewRootDeploymentInfo(s *capnp.Segment) (DeploymentInfo, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
 	return DeploymentInfo(st), err
 }
 
@@ -776,20 +776,12 @@ func (s DeploymentInfo) SetCompilationMode(v CompilationMode) {
 	capnp.Struct(s).SetUint16(0, uint16(v))
 }
 
-func (s DeploymentInfo) NumLpuNodes() uint32 {
+func (s DeploymentInfo) TotalNumStages() uint32 {
 	return capnp.Struct(s).Uint32(4)
 }
 
-func (s DeploymentInfo) SetNumLpuNodes(v uint32) {
-	capnp.Struct(s).SetUint32(4, v)
-}
-
-func (s DeploymentInfo) TotalNumStages() uint32 {
-	return capnp.Struct(s).Uint32(8)
-}
-
 func (s DeploymentInfo) SetTotalNumStages(v uint32) {
-	capnp.Struct(s).SetUint32(8, v)
+	capnp.Struct(s).SetUint32(4, v)
 }
 
 func (s DeploymentInfo) Program() (ProgramConfig, error) {
@@ -816,40 +808,17 @@ func (s DeploymentInfo) NewProgram() (ProgramConfig, error) {
 	return ss, err
 }
 
-func (s DeploymentInfo) SelectedPropSyncChains() (PropSyncChain_List, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return PropSyncChain_List(p.List()), err
-}
-
-func (s DeploymentInfo) HasSelectedPropSyncChains() bool {
-	return capnp.Struct(s).HasPtr(1)
-}
-
-func (s DeploymentInfo) SetSelectedPropSyncChains(v PropSyncChain_List) error {
-	return capnp.Struct(s).SetPtr(1, v.ToPtr())
-}
-
-// NewSelectedPropSyncChains sets the selectedPropSyncChains field to a newly
-// allocated PropSyncChain_List, preferring placement in s's segment.
-func (s DeploymentInfo) NewSelectedPropSyncChains(n int32) (PropSyncChain_List, error) {
-	l, err := NewPropSyncChain_List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return PropSyncChain_List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
-	return l, err
-}
 func (s DeploymentInfo) RuntimeIo() (RuntimeIoConfig, error) {
-	p, err := capnp.Struct(s).Ptr(2)
+	p, err := capnp.Struct(s).Ptr(1)
 	return RuntimeIoConfig(p.Struct()), err
 }
 
 func (s DeploymentInfo) HasRuntimeIo() bool {
-	return capnp.Struct(s).HasPtr(2)
+	return capnp.Struct(s).HasPtr(1)
 }
 
 func (s DeploymentInfo) SetRuntimeIo(v RuntimeIoConfig) error {
-	return capnp.Struct(s).SetPtr(2, capnp.Struct(v).ToPtr())
+	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
 }
 
 // NewRuntimeIo sets the runtimeIo field to a newly
@@ -859,21 +828,21 @@ func (s DeploymentInfo) NewRuntimeIo() (RuntimeIoConfig, error) {
 	if err != nil {
 		return RuntimeIoConfig{}, err
 	}
-	err = capnp.Struct(s).SetPtr(2, capnp.Struct(ss).ToPtr())
+	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
 	return ss, err
 }
 
 func (s DeploymentInfo) LpuUnits() (LpuUnit_List, error) {
-	p, err := capnp.Struct(s).Ptr(3)
+	p, err := capnp.Struct(s).Ptr(2)
 	return LpuUnit_List(p.List()), err
 }
 
 func (s DeploymentInfo) HasLpuUnits() bool {
-	return capnp.Struct(s).HasPtr(3)
+	return capnp.Struct(s).HasPtr(2)
 }
 
 func (s DeploymentInfo) SetLpuUnits(v LpuUnit_List) error {
-	return capnp.Struct(s).SetPtr(3, v.ToPtr())
+	return capnp.Struct(s).SetPtr(2, v.ToPtr())
 }
 
 // NewLpuUnits sets the lpuUnits field to a newly
@@ -883,7 +852,7 @@ func (s DeploymentInfo) NewLpuUnits(n int32) (LpuUnit_List, error) {
 	if err != nil {
 		return LpuUnit_List{}, err
 	}
-	err = capnp.Struct(s).SetPtr(3, l.ToPtr())
+	err = capnp.Struct(s).SetPtr(2, l.ToPtr())
 	return l, err
 }
 
@@ -892,7 +861,7 @@ type DeploymentInfo_List = capnp.StructList[DeploymentInfo]
 
 // NewDeploymentInfo creates a new list of DeploymentInfo.
 func NewDeploymentInfo_List(s *capnp.Segment, sz int32) (DeploymentInfo_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3}, sz)
 	return capnp.StructList[DeploymentInfo](l), err
 }
 
@@ -907,7 +876,7 @@ func (p DeploymentInfo_Future) Program() ProgramConfig_Future {
 	return ProgramConfig_Future{Future: p.Future.Field(0, nil)}
 }
 func (p DeploymentInfo_Future) RuntimeIo() RuntimeIoConfig_Future {
-	return RuntimeIoConfig_Future{Future: p.Future.Field(2, nil)}
+	return RuntimeIoConfig_Future{Future: p.Future.Field(1, nil)}
 }
 
 type CompilationMode uint16
@@ -1071,89 +1040,6 @@ type ProgramConfig_Future struct{ *capnp.Future }
 func (f ProgramConfig_Future) Struct() (ProgramConfig, error) {
 	p, err := f.Future.Ptr()
 	return ProgramConfig(p.Struct()), err
-}
-
-type PropSyncChain capnp.Struct
-
-// PropSyncChain_TypeID is the unique identifier for the type PropSyncChain.
-const PropSyncChain_TypeID = 0x8a2b4a1188f3156d
-
-func NewPropSyncChain(s *capnp.Segment) (PropSyncChain, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return PropSyncChain(st), err
-}
-
-func NewRootPropSyncChain(s *capnp.Segment) (PropSyncChain, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return PropSyncChain(st), err
-}
-
-func ReadRootPropSyncChain(msg *capnp.Message) (PropSyncChain, error) {
-	root, err := msg.Root()
-	return PropSyncChain(root.Struct()), err
-}
-
-func (s PropSyncChain) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (PropSyncChain) DecodeFromPtr(p capnp.Ptr) PropSyncChain {
-	return PropSyncChain(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s PropSyncChain) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s PropSyncChain) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s PropSyncChain) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s PropSyncChain) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s PropSyncChain) PartitionIds() (capnp.UInt32List, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return capnp.UInt32List(p.List()), err
-}
-
-func (s PropSyncChain) HasPartitionIds() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s PropSyncChain) SetPartitionIds(v capnp.UInt32List) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewPartitionIds sets the partitionIds field to a newly
-// allocated capnp.UInt32List, preferring placement in s's segment.
-func (s PropSyncChain) NewPartitionIds(n int32) (capnp.UInt32List, error) {
-	l, err := capnp.NewUInt32List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.UInt32List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-
-// PropSyncChain_List is a list of PropSyncChain.
-type PropSyncChain_List = capnp.StructList[PropSyncChain]
-
-// NewPropSyncChain creates a new list of PropSyncChain.
-func NewPropSyncChain_List(s *capnp.Segment, sz int32) (PropSyncChain_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[PropSyncChain](l), err
-}
-
-// PropSyncChain_Future is a wrapper for a PropSyncChain promised by a client call.
-type PropSyncChain_Future struct{ *capnp.Future }
-
-func (f PropSyncChain_Future) Struct() (PropSyncChain, error) {
-	p, err := f.Future.Ptr()
-	return PropSyncChain(p.Struct()), err
 }
 
 type LpuUnit capnp.Struct
@@ -2066,12 +1952,12 @@ type LpuPartitionArtifact capnp.Struct
 const LpuPartitionArtifact_TypeID = 0xc7a8c84cbae6ba0e
 
 func NewLpuPartitionArtifact(s *capnp.Segment) (LpuPartitionArtifact, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 3})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 2})
 	return LpuPartitionArtifact(st), err
 }
 
 func NewRootLpuPartitionArtifact(s *capnp.Segment) (LpuPartitionArtifact, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 3})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 2})
 	return LpuPartitionArtifact(st), err
 }
 
@@ -2146,30 +2032,6 @@ func (s LpuPartitionArtifact) SetNumChips(v uint32) {
 	capnp.Struct(s).SetUint32(0, v)
 }
 
-func (s LpuPartitionArtifact) TopologyMetadata() (TopologyMetadata, error) {
-	p, err := capnp.Struct(s).Ptr(2)
-	return TopologyMetadata(p.Struct()), err
-}
-
-func (s LpuPartitionArtifact) HasTopologyMetadata() bool {
-	return capnp.Struct(s).HasPtr(2)
-}
-
-func (s LpuPartitionArtifact) SetTopologyMetadata(v TopologyMetadata) error {
-	return capnp.Struct(s).SetPtr(2, capnp.Struct(v).ToPtr())
-}
-
-// NewTopologyMetadata sets the topologyMetadata field to a newly
-// allocated TopologyMetadata struct, preferring placement in s's segment.
-func (s LpuPartitionArtifact) NewTopologyMetadata() (TopologyMetadata, error) {
-	ss, err := NewTopologyMetadata(capnp.Struct(s).Segment())
-	if err != nil {
-		return TopologyMetadata{}, err
-	}
-	err = capnp.Struct(s).SetPtr(2, capnp.Struct(ss).ToPtr())
-	return ss, err
-}
-
 func (s LpuPartitionArtifact) DevicesPerNode() uint32 {
 	return capnp.Struct(s).Uint32(4)
 }
@@ -2191,7 +2053,7 @@ type LpuPartitionArtifact_List = capnp.StructList[LpuPartitionArtifact]
 
 // NewLpuPartitionArtifact creates a new list of LpuPartitionArtifact.
 func NewLpuPartitionArtifact_List(s *capnp.Segment, sz int32) (LpuPartitionArtifact_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 3}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 2}, sz)
 	return capnp.StructList[LpuPartitionArtifact](l), err
 }
 
@@ -2201,9 +2063,6 @@ type LpuPartitionArtifact_Future struct{ *capnp.Future }
 func (f LpuPartitionArtifact_Future) Struct() (LpuPartitionArtifact, error) {
 	p, err := f.Future.Ptr()
 	return LpuPartitionArtifact(p.Struct()), err
-}
-func (p LpuPartitionArtifact_Future) TopologyMetadata() TopologyMetadata_Future {
-	return TopologyMetadata_Future{Future: p.Future.Field(2, nil)}
 }
 
 type LpuArchitecture uint16
@@ -2456,105 +2315,4 @@ type PartSelect_Future struct{ *capnp.Future }
 func (f PartSelect_Future) Struct() (PartSelect, error) {
 	p, err := f.Future.Ptr()
 	return PartSelect(p.Struct()), err
-}
-
-type TopologyMetadata capnp.Struct
-
-// TopologyMetadata_TypeID is the unique identifier for the type TopologyMetadata.
-const TopologyMetadata_TypeID = 0x95b5d7af5b73d213
-
-func NewTopologyMetadata(s *capnp.Segment) (TopologyMetadata, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return TopologyMetadata(st), err
-}
-
-func NewRootTopologyMetadata(s *capnp.Segment) (TopologyMetadata, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return TopologyMetadata(st), err
-}
-
-func ReadRootTopologyMetadata(msg *capnp.Message) (TopologyMetadata, error) {
-	root, err := msg.Root()
-	return TopologyMetadata(root.Struct()), err
-}
-
-func (s TopologyMetadata) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (TopologyMetadata) DecodeFromPtr(p capnp.Ptr) TopologyMetadata {
-	return TopologyMetadata(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s TopologyMetadata) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s TopologyMetadata) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s TopologyMetadata) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s TopologyMetadata) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s TopologyMetadata) TopologyFamily() (string, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return p.Text(), err
-}
-
-func (s TopologyMetadata) HasTopologyFamily() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s TopologyMetadata) TopologyFamilyBytes() ([]byte, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return p.TextBytes(), err
-}
-
-func (s TopologyMetadata) SetTopologyFamily(v string) error {
-	return capnp.Struct(s).SetText(0, v)
-}
-
-func (s TopologyMetadata) PartitionShape() (capnp.UInt32List, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return capnp.UInt32List(p.List()), err
-}
-
-func (s TopologyMetadata) HasPartitionShape() bool {
-	return capnp.Struct(s).HasPtr(1)
-}
-
-func (s TopologyMetadata) SetPartitionShape(v capnp.UInt32List) error {
-	return capnp.Struct(s).SetPtr(1, v.ToPtr())
-}
-
-// NewPartitionShape sets the partitionShape field to a newly
-// allocated capnp.UInt32List, preferring placement in s's segment.
-func (s TopologyMetadata) NewPartitionShape(n int32) (capnp.UInt32List, error) {
-	l, err := capnp.NewUInt32List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.UInt32List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
-	return l, err
-}
-
-// TopologyMetadata_List is a list of TopologyMetadata.
-type TopologyMetadata_List = capnp.StructList[TopologyMetadata]
-
-// NewTopologyMetadata creates a new list of TopologyMetadata.
-func NewTopologyMetadata_List(s *capnp.Segment, sz int32) (TopologyMetadata_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
-	return capnp.StructList[TopologyMetadata](l), err
-}
-
-// TopologyMetadata_Future is a wrapper for a TopologyMetadata promised by a client call.
-type TopologyMetadata_Future struct{ *capnp.Future }
-
-func (f TopologyMetadata_Future) Struct() (TopologyMetadata, error) {
-	p, err := f.Future.Ptr()
-	return TopologyMetadata(p.Struct()), err
 }

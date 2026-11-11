@@ -20,7 +20,9 @@ import (
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/consts"
 	commoncontroller "github.com/ai-dynamo/dynamo/deploy/operator/internal/controller_common"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo"
-	manifestcapnpv2 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/v2"
+	commoncapnpv1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/common/v1"
+	deploymentcapnpv1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/deployment/v1"
+	"github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/testfixture"
 	lpxv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/scheduler/v1alpha1"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/features"
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/testing/golden"
@@ -75,49 +77,30 @@ func TestLPXPublicationFailureReachesDGDThroughSetup(t *testing.T) {
 	t.Log("Encode a real two-partition LPU build owned by this test")
 	buildDir := t.TempDir()
 	message, segment := capnp.NewSingleSegmentMessage(nil)
-	manifest, err := manifestcapnpv2.NewRootManifest(segment)
+	manifest, err := deploymentcapnpv1.NewRootDeployment(segment)
 	require.NoError(t, err)
-	manifest.SetContractRevision(manifestcapnpv2.CurrentContractRevision)
-	model, err := manifest.NewModel()
+	manifest.SetContractRevision(deploymentcapnpv1.CurrentContractRevision)
+	deployment, err := manifest.NewConfig()
 	require.NoError(t, err)
-	tokenizer, err := model.NewTokenizer()
-	require.NoError(t, err)
-	require.NoError(t, tokenizer.SetPath("tokenizer"))
-	stopTokens, err := tokenizer.NewStopTokens(1)
-	require.NoError(t, err)
-	stopTokens.Set(0, 1)
-	deployment, err := manifest.NewDeployment()
-	require.NoError(t, err)
-	deployment.SetCompilationMode(manifestcapnpv2.CompilationMode_lpuOnly)
-	deployment.SetNumLpuNodes(4)
+	deployment.SetCompilationMode(deploymentcapnpv1.CompilationMode_lpuOnly)
 	program, err := deployment.NewProgram()
 	require.NoError(t, err)
 	program.SetBatchSize(1)
-	program.SetSequenceLength(8192)
-	program.SetInputSize(1)
-	program.SetOutputSize(1)
-	program.SetNumKvCaches(1)
-	program.SetNumBatchSplitDivisions(1)
 	runtimeIO, err := deployment.NewRuntimeIo()
 	require.NoError(t, err)
 	runtimeIO.SetProtocol(0)
-	runtimeIO.SetReserved1(1)
 	runtimeIO.SetIoFpgaCount(1)
 	runtimeIO.SetFanoutFactor(1)
-	chains, err := deployment.NewSelectedPropSyncChains(1)
-	require.NoError(t, err)
-	partitionIDs, err := chains.At(0).NewPartitionIds(2)
-	require.NoError(t, err)
-	partitionIDs.Set(0, 7)
-	partitionIDs.Set(1, 8)
-	artifacts, err := manifest.NewArtifacts()
-	require.NoError(t, err)
-	partitions, err := artifacts.NewPartitions(2)
+	testfixture.WriteUnits(t, deployment, []testfixture.Unit{{
+		Reservations: []testfixture.Reservation{{IDs: []uint32{7}, Nodes: 2}, {IDs: []uint32{8}, Nodes: 2}},
+		Connectors:   []testfixture.Connector{{}},
+	}})
+	partitions, err := manifest.NewPartitions(2)
 	require.NoError(t, err)
 	for index := range partitions.Len() {
 		partition, err := partitions.At(index).NewPartition()
 		require.NoError(t, err)
-		partition.SetDeviceType(manifestcapnpv2.DeviceType_lpu)
+		partition.SetDeviceType(commoncapnpv1.DeviceType_lpu)
 		partition.SetPartitionId(uint32(index + 7))
 		detail, err := partitions.At(index).Detail().NewLpu()
 		require.NoError(t, err)
@@ -125,17 +108,11 @@ func TestLPXPublicationFailureReachesDGDThroughSetup(t *testing.T) {
 		require.NoError(t, detail.SetTopology("test-topology"))
 		detail.SetNumChips(16)
 		detail.SetDevicesPerNode(8)
-		programs, err := capnp.NewCompositeList(detail.Segment(), capnp.ObjectSize{PointerCount: 2}, 1)
-		require.NoError(t, err)
-		require.NoError(t, detail.SetReserved4(programs.ToPtr()))
-		chips, err := capnp.NewCompositeList(programs.Struct(0).Segment(), capnp.ObjectSize{DataSize: 8, PointerCount: 2}, 1)
-		require.NoError(t, err)
-		require.NoError(t, programs.Struct(0).SetPtr(1, chips.ToPtr()))
-		require.NoError(t, chips.Struct(0).SetText(1, "polaris"))
+		detail.SetArchitecture(deploymentcapnpv1.LpuArchitecture_lp20)
 	}
 	payload, err := message.Marshal()
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(buildDir, "manifest.v2.capnp.bin"), payload, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(buildDir, "deployment.v1.capnp.bin"), payload, 0o600))
 
 	t.Log("Start an isolated API server and register the external kinds needed only for watches")
 	config := &configv1alpha1.OperatorConfiguration{}
@@ -206,7 +183,6 @@ func TestLPXPublicationFailureReachesDGDThroughSetup(t *testing.T) {
 						Name: consts.MainContainerName, Image: "example/lpu-runtime:1.4.0",
 						VolumeMounts: []corev1.VolumeMount{
 							{Name: v1alpha1.ModelStorageVolumeName, MountPath: "/models"},
-							{Name: "config", MountPath: "/configs"},
 							{Name: "host-dev", MountPath: "/dev"},
 							{Name: "host-sys", MountPath: "/sys"},
 							{Name: "hugepages", MountPath: "/dev/hugepages"},
@@ -299,19 +275,16 @@ func TestLPXPublicationFailureReachesDGDThroughSetup(t *testing.T) {
 	t.Log("Release quota and observe alpha LGD ownership of the published PCS and runtime resources without waiting for scheduling")
 	require.NoError(t, env.Client().Delete(t.Context(), quota))
 	pcs := &grovev1alpha1.PodCliqueSet{Name: dynamo.PCSNameForLPX(child), Namespace: source.Namespace}
-	configMap := &corev1.ConfigMap{Namespace: source.Namespace}
 	service := &corev1.Service{Name: pcs.Name + "-serve", Namespace: source.Namespace}
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		if !assert.NoError(c, env.Client().Get(t.Context(), client.ObjectKeyFromObject(pcs), pcs)) {
 			return
 		}
-		configMap.Name = fmt.Sprintf("%s-lpu-%.16s", pcs.Name, pcs.Spec.Template.Cliques[0].Annotations[v1alpha1.AnnotationExtraResourcesHash])
-		for _, resource := range []client.Object{pcs, configMap, service} {
+		for _, resource := range []client.Object{pcs, service} {
 			if assert.NoError(c, env.Client().Get(t.Context(), client.ObjectKeyFromObject(resource), resource)) {
 				assert.Equal(c, metav1.NewControllerRef(child, v1alpha1.LPXGraphDeploymentGVK), metav1.GetControllerOf(resource))
 			}
 		}
-		assert.Equal(c, new(true), configMap.Immutable)
 	}, 20*time.Second, 50*time.Millisecond)
 }
 

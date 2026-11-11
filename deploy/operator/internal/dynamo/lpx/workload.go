@@ -46,7 +46,3 @@ func (w *Workload) ComponentNames() []string {
 func (w *Workload) ServingComponentName() string {
 	return w.modelProjections[len(w.modelProjections)-1].stage
 }
-
-func (w *Workload) placesLPUUnits() bool {
-	return w.modelProjections[0].placesLPUUnits()
-}

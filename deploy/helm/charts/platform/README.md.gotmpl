@@ -104,6 +104,29 @@ up to your target version. Each entry describes changes introduced in that relea
 categories without migration notes recorded here are omitted. For supported Grove and KAI Scheduler
 versions, see the [compatibility matrix](#kai-scheduler-and-grove-configuration).
 
+### Unreleased
+
+#### Operator behavior breaking changes
+
+##### LPX units-only deployment contract
+
+**Change:** LPX reconciliation requires deployment contract revision 2 with explicit
+LPU units. The operator no longer reads legacy placement fields or generates
+placement ConfigMaps under `/configs`.
+
+**Affected:** Every LPX deployment whose model bundle uses an older deployment revision.
+
+**Action:** Recompile these models with the revision-2 producer and update their build IDs.
+Use matching revision-2 runtimes and the scheduler API without `allocationMetadata` or
+`compilerPartitionId`. Remove obsolete `/configs` mounts and their volumes.
+
+**Existing deployments:** Finish existing LPX workloads and clean them up with the old
+operator and scheduler before upgrading. Then create the workloads again with recompiled
+models and matching runtimes. Rolling overlap across this cutover is not supported.
+Reconciliation rejects an unsupported deployment revision before reading placement fields.
+The operator forwards compiler-authored per-host resource counts; it does not impose a
+fixed device count for the hardware family.
+
 ### v1.7.0
 
 #### Deployment Tool Compatibility

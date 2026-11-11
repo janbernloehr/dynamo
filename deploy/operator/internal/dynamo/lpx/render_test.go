@@ -13,7 +13,6 @@ import (
 	"github.com/ai-dynamo/dynamo/deploy/operator/api/v1alpha1"
 	"github.com/ai-dynamo/dynamo/deploy/operator/api/v1beta1"
 	deploymentcapnpv1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/deployment/v1"
-	manifestcapnp "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/v2"
 	lpxv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/scheduler/v1alpha1"
 	grovev1alpha1 "github.com/ai-dynamo/grove/operator/api/core/v1alpha1"
 	"github.com/stretchr/testify/require"
@@ -69,7 +68,7 @@ func TestRenderResolvesAuthoredMetadataAndMounts(t *testing.T) {
 
 	t.Log("Cover shared configuration overrides and HX hybrid model-storage paths")
 	hybrid := newV3CompilerFixture()
-	hybrid.compilationMode = manifestcapnp.CompilationMode_lpx
+	hybrid.compilationMode = deploymentcapnpv1.CompilationMode_lpx
 	xtSnapshot := acquireTestSnapshot(t, writeV2CompilerFixture(t))
 	hxSnapshot := acquireTestSnapshot(t, writeV3CompilerFixture(t))
 	tests := []struct {
@@ -80,7 +79,7 @@ func TestRenderResolvesAuthoredMetadataAndMounts(t *testing.T) {
 	}{
 		{
 			name: "XT config mount", pipeline: PipelineSingle,
-			snapshot: xtSnapshot, configPath: "/custom",
+			snapshot: xtSnapshot, configPath: "/etc/runtime",
 		},
 		{
 			name: "XT omitted config mount", pipeline: PipelineSingle,
@@ -92,11 +91,11 @@ func TestRenderResolvesAuthoredMetadataAndMounts(t *testing.T) {
 		},
 		{
 			name: "HX custom config mount", pipeline: PipelineSingle,
-			snapshot: hxSnapshot, configPath: "/custom",
+			snapshot: hxSnapshot, configPath: "/etc/custom-runtime",
 		},
 		{
 			name: "HX hybrid storage", pipeline: PipelineHybrid,
-			snapshot: acquireTestSnapshot(t, writeCompilerFixture(t, hybrid)), configPath: "/configs",
+			snapshot: acquireTestSnapshot(t, writeCompilerFixture(t, hybrid)), configPath: "",
 		},
 	}
 	for _, test := range tests {
@@ -124,21 +123,19 @@ func TestRenderResolvesAuthoredMetadataAndMounts(t *testing.T) {
 			}
 			if test.configPath != "" {
 				template.Spec.Volumes = append(template.Spec.Volumes, corev1.Volume{
-					Name: lpuConfigVolumeName,
+					Name: "runtime-config",
 					ConfigMap: &corev1.ConfigMapVolumeSource{
 						Name: "authored-config", DefaultMode: ptr.To[int32](0440),
 					},
 				})
 			}
-			template.Spec.Containers[0].VolumeMounts = slices.DeleteFunc(template.Spec.Containers[0].VolumeMounts,
-				func(mount corev1.VolumeMount) bool { return mount.Name == lpuConfigVolumeName })
 			if test.configPath != "" {
 				template.Spec.Containers[0].VolumeMounts = append(template.Spec.Containers[0].VolumeMounts,
-					corev1.VolumeMount{Name: lpuConfigVolumeName, MountPath: test.configPath})
+					corev1.VolumeMount{Name: "runtime-config", MountPath: test.configPath})
 			}
 			if test.pipeline == PipelineHybrid {
 				template.Spec.Containers[0].VolumeMounts[0].MountPath = "/model-cache"
-				pcs.Spec.Template.Cliques[0].Spec.PodSpec.Containers[0].VolumeMounts[1].MountPath = "/model-cache"
+				pcs.Spec.Template.Cliques[0].Spec.PodSpec.Containers[0].VolumeMounts[0].MountPath = "/model-cache"
 			}
 
 			t.Log("Render into the fresh PCS without retaining stale runtime identity")
@@ -178,7 +175,7 @@ func TestRenderResolvesAuthoredMetadataAndMounts(t *testing.T) {
 				cyborg := namedClique(t, rendered, "cond").Spec.PodSpec.Containers[0]
 				require.Contains(t, cyborg.VolumeMounts, corev1.VolumeMount{Name: "model-storage", MountPath: "/model-cache"})
 				require.Contains(t, cyborg.Env, corev1.EnvVar{
-					Name: "GBUILD_MANIFEST_PATH", Value: "/model-cache/model-build/manifest.v2.capnp.bin",
+					Name: "GBUILD_MANIFEST_PATH", Value: "/model-cache/model-build/deployment.v1.capnp.bin",
 				})
 			}
 		})
@@ -381,19 +378,15 @@ func TestRenderSpecDecodeRoleOwnershipAndTemplateSettings(t *testing.T) {
 
 	t.Log("Preserve runtime settings in the conductor template and share only partition data")
 	require.Equal(t, conductorTemplate.Spec.Containers[0].Resources, conductor.Spec.PodSpec.Containers[0].Resources)
-	configMap, ok := templates.Resources[0].(*corev1.ConfigMap)
-	require.True(t, ok)
-	require.NotContains(t, configMap.Data, "model_config.toml")
+	require.Empty(t, templates.Resources)
 	for _, env := range conductorTemplate.Spec.Containers[0].Env {
 		require.Contains(t, conductor.Spec.PodSpec.Containers[0].Env, env)
 	}
-	require.Equal(t, "draft0\ndraft1\ntarget", configMap.Data["partition_models"])
 	require.Equal(t, before, source)
 
 	t.Log("Bind conductor allocation and Nova hostnames to the renamed Agent cliques")
 	require.Equal(t, "agt0:agt1:agt2", testContainerEnvValue(conductor.Spec.PodSpec.Containers[0].Env, allocationEnvVar))
 	require.Equal(t, []string{"agt0", "agt1", "agt2"}, conductor.Spec.StartsAfter)
-	require.NotContains(t, configMap.Data, "datacenter.toml")
 	nodeNameTemplate := testContainerEnvValue(conductor.Spec.PodSpec.Containers[0].Env, "NOVA_NODE_NAME_TEMPLATE")
 	for _, agent := range plan.ForReplica(0).Agents {
 		hostname := strings.NewReplacer(
@@ -439,7 +432,6 @@ func renderTestPCS(hybrid bool) *grovev1alpha1.PodCliqueSet {
 				Containers: []corev1.Container{{Name: "main", Image: "cyborg", Env: []corev1.EnvVar{
 					{Name: "SERVER_HOSTS_FILE", Value: "/tmp/lpu_servers"},
 				}, VolumeMounts: []corev1.VolumeMount{
-					{Name: lpuConfigVolumeName, MountPath: "/configs"},
 					{Name: "model-storage", MountPath: "/models"},
 				}}},
 				ResourceClaims: []corev1.PodResourceClaim{{
@@ -469,7 +461,6 @@ func renderTestPodSpec() corev1.PodSpec {
 			Name: "main", Image: "runtime",
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "model-storage", MountPath: "/models"},
-				{Name: lpuConfigVolumeName, MountPath: "/configs"},
 				{Name: "single-v2-ssh-key", MountPath: "/tmp/dynamo-lpu-ssh"},
 				{Name: "ssh-secret", MountPath: "/ssh-pk", ReadOnly: true},
 			},
@@ -511,7 +502,7 @@ func TestRenderUnitsHaveNoLegacyConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Log("Resolve a units artifact and prepare fresh runtime templates")
 			bundle := testUnitBundle{architecture: deploymentcapnpv1.LpuArchitecture_lp20, devicesPerNode: 8, hybrid: tc.hybrid, ioFPGACount: tc.ioFPGACount,
-				partitions: testUnitPartitions(8, nil, 0), units: testSingleUnits(testNodesReservation(1, 0))}
+				partitions: testUnitPartitions(8, 0), units: testSingleUnits(testNodesReservation(1, 0))}
 			build, err := acquireTestUnitBundle(t, bundle)
 			require.NoError(t, err)
 			var local *v1beta1.LPXLocalPartitions
@@ -526,10 +517,10 @@ func TestRenderUnitsHaveNoLegacyConfig(t *testing.T) {
 			plan, err := workload.PlanNodeLocalMaterialization("test-pcs", serving)
 			require.NoError(t, err)
 			spec := renderTestPodSpec()
-			spec.Containers[0].VolumeMounts = slices.DeleteFunc(spec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == lpuConfigVolumeName })
+			spec.Containers[0].VolumeMounts = slices.DeleteFunc(spec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == "config" })
 			if tc.mount {
 				if tc.mountName == "" {
-					tc.mountName = lpuConfigVolumeName
+					tc.mountName = "config"
 				}
 				if tc.mountPath == "" {
 					tc.mountPath = "/configs"
@@ -537,19 +528,19 @@ func TestRenderUnitsHaveNoLegacyConfig(t *testing.T) {
 				spec.Containers[0].VolumeMounts = append(spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: tc.mountName, MountPath: tc.mountPath})
 			}
 			if tc.volume {
-				spec.Volumes = append(spec.Volumes, corev1.Volume{Name: lpuConfigVolumeName, EmptyDir: &corev1.EmptyDirVolumeSource{}})
+				spec.Volumes = append(spec.Volumes, corev1.Volume{Name: "config", EmptyDir: &corev1.EmptyDirVolumeSource{}})
 			}
 			if tc.init {
 				spec.InitContainers = []corev1.Container{*spec.Containers[0].DeepCopy()}
 				spec.InitContainers[0].Name = "setup"
-				spec.Containers[0].VolumeMounts = slices.DeleteFunc(spec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == lpuConfigVolumeName })
+				spec.Containers[0].VolumeMounts = slices.DeleteFunc(spec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == "config" })
 			}
 			input := RenderInput{Stages: map[string]corev1.PodTemplateSpec{testRenderComponentName: {Spec: spec}}}
 			if tc.hybrid {
 				input.Cyborg = renderTestPCS(true).Spec.Template.Cliques[0]
 				input.Cyborg.Spec.Replicas, err = workload.MinimumCyborgReplicas()
 				require.NoError(t, err)
-				input.Cyborg.Spec.PodSpec.Containers[0].VolumeMounts = slices.DeleteFunc(input.Cyborg.Spec.PodSpec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == lpuConfigVolumeName })
+				input.Cyborg.Spec.PodSpec.Containers[0].VolumeMounts = slices.DeleteFunc(input.Cyborg.Spec.PodSpec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == "config" })
 			} else {
 				input.Conductor = &corev1.PodTemplateSpec{Spec: *spec.DeepCopy()}
 			}
@@ -573,7 +564,7 @@ func TestRenderUnitsHaveNoLegacyConfig(t *testing.T) {
 				}
 				require.NotContains(t, clique.Annotations, v1alpha1.AnnotationExtraResourcesHash)
 				for _, volume := range clique.Spec.PodSpec.Volumes {
-					require.NotEqual(t, lpuConfigVolumeName, volume.Name)
+					require.NotEqual(t, "config", volume.Name)
 				}
 				if !tc.allLocal && clique.Name == plan.Agents[0].TemplateName {
 					require.Contains(t, clique.Spec.PodSpec.Containers[0].Env, corev1.EnvVar{Name: localPartitionIDsEnv, Value: ""})

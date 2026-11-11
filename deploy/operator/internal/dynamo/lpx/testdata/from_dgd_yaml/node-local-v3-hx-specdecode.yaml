@@ -1,40 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-data:
-  nodes_per_partition: |-
-    1
-    1
-    1
-  partition_ids: |-
-    1
-    1
-    1
-  partition_indices: |-
-    0
-    0
-    0
-  partition_models: |-
-    draft0
-    draft1
-    target
-  partition_node_offsets: |-
-    0
-    0
-    0
-  partition_paths: |-
-    part-1
-    part-1
-    part-1
-immutable: true
-metadata:
-  annotations:
-    lpx.nvidia.com/deployment-name: node-local-v3-hx-specdecode
-  labels:
-    lpx.nvidia.com/deployment-uid: lpx-render-uid
-  name: node-local-v3-hx-specdecode-1f7a-lpu-03a7edb74f46c6be
-  namespace: test
----
 metadata:
   annotations:
     lpx.nvidia.com/deployment-name: node-local-v3-hx-specdecode
@@ -50,9 +16,8 @@ spec:
     cliques:
     - annotations:
         lpx.nvidia.com/deployment-name: node-local-v3-hx-specdecode
-        nvidia.com/extra-resources-hash: 03a7edb74f46c6bee8d8436c085fe960e4971f4286f2d9e924ca1298f6ba19d6
-        scheduling.lpu.nvidia.com/compiler-snapshot-digest: sha256:bc120b1293705f1fd0dc54a150b0e898343a27c61305df4e7762c6730de8f395
-        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:0286f6abd5ae05f82a5c1b77d706f54c54315b75ad83b9a300d80abcccf606ef
+        scheduling.lpu.nvidia.com/compiler-snapshot-digest: sha256:fd4f1a0657ba30a3332515cdf4b52a5e4d76268c16d2a9a746d3cb9d5b08ae5e
+        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:4dc277f740a396cb8e3fd33e42e9153a8543af18f9e46037d0d9b0d5f36c2065
         scheduling.lpu.nvidia.com/model: draft0
         scheduling.lpu.nvidia.com/role: agent
         scheduling.lpu.nvidia.com/workload-mode: v3HxLpuOnly
@@ -68,9 +33,8 @@ spec:
         minAvailable: 1
         podSpec:
           containers:
-          - command:
-            - /bin/quasar-entrypoint
-            env:
+          - env:
+            - name: LPX_LOCAL_PARTITION_IDS
             - name: LPX_DRAFT_MODEL_PATH
               value: /nfs/node-local-v3-hx-sd-draft
             - name: LPX_TARGET_MODEL_PATH
@@ -97,6 +61,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.annotations['scheduling.lpu.nvidia.com/model']
+            - name: MODEL_PATH
+              value: $(LPX_MODEL_PATH)
             - name: NATS_SERVER
               value: nats-address
             - name: POD_IP
@@ -117,7 +83,7 @@ spec:
                   fieldPath: metadata.uid
             - name: REDFISH_BMC_ENABLED
               value: "false"
-            image: example.invalid/lpu-runtime:test
+            image: example.invalid/quasar:test
             name: main
             readinessProbe:
               failureThreshold: 3
@@ -138,8 +104,6 @@ spec:
             volumeMounts:
             - mountPath: /nfs
               name: model-storage
-            - mountPath: /configs
-              name: config
             - mountPath: /dev
               name: host-dev
             - mountPath: /sys
@@ -203,16 +167,12 @@ spec:
               medium: Memory
               sizeLimit: 8Gi
             name: shared-memory
-          - configMap:
-              name: node-local-v3-hx-specdecode-1f7a-lpu-03a7edb74f46c6be
-            name: config
         replicas: 1
         roleName: agt0
     - annotations:
         lpx.nvidia.com/deployment-name: node-local-v3-hx-specdecode
-        nvidia.com/extra-resources-hash: 03a7edb74f46c6bee8d8436c085fe960e4971f4286f2d9e924ca1298f6ba19d6
-        scheduling.lpu.nvidia.com/compiler-snapshot-digest: sha256:bc120b1293705f1fd0dc54a150b0e898343a27c61305df4e7762c6730de8f395
-        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:9b679919624acb2116b553248857ee0e9523e14307a1aee998042aed11fb490a
+        scheduling.lpu.nvidia.com/compiler-snapshot-digest: sha256:fd4f1a0657ba30a3332515cdf4b52a5e4d76268c16d2a9a746d3cb9d5b08ae5e
+        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:f4794f5440655e9c31a857794c6c4bf23d878540332aabf4aa993798f200d9d9
         scheduling.lpu.nvidia.com/model: draft1
         scheduling.lpu.nvidia.com/role: agent
         scheduling.lpu.nvidia.com/workload-mode: v3HxLpuOnly
@@ -228,9 +188,8 @@ spec:
         minAvailable: 1
         podSpec:
           containers:
-          - command:
-            - /bin/quasar-entrypoint
-            env:
+          - env:
+            - name: LPX_LOCAL_PARTITION_IDS
             - name: LPX_DRAFT_MODEL_PATH
               value: /nfs/node-local-v3-hx-sd-draft
             - name: LPX_TARGET_MODEL_PATH
@@ -257,6 +216,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.annotations['scheduling.lpu.nvidia.com/model']
+            - name: MODEL_PATH
+              value: $(LPX_MODEL_PATH)
             - name: NATS_SERVER
               value: nats-address
             - name: POD_IP
@@ -277,7 +238,7 @@ spec:
                   fieldPath: metadata.uid
             - name: REDFISH_BMC_ENABLED
               value: "false"
-            image: example.invalid/lpu-runtime:test
+            image: example.invalid/quasar:test
             name: main
             readinessProbe:
               failureThreshold: 3
@@ -298,8 +259,6 @@ spec:
             volumeMounts:
             - mountPath: /nfs
               name: model-storage
-            - mountPath: /configs
-              name: config
             - mountPath: /dev
               name: host-dev
             - mountPath: /sys
@@ -363,16 +322,12 @@ spec:
               medium: Memory
               sizeLimit: 8Gi
             name: shared-memory
-          - configMap:
-              name: node-local-v3-hx-specdecode-1f7a-lpu-03a7edb74f46c6be
-            name: config
         replicas: 1
         roleName: agt1
     - annotations:
         lpx.nvidia.com/deployment-name: node-local-v3-hx-specdecode
-        nvidia.com/extra-resources-hash: 03a7edb74f46c6bee8d8436c085fe960e4971f4286f2d9e924ca1298f6ba19d6
-        scheduling.lpu.nvidia.com/compiler-snapshot-digest: sha256:bc120b1293705f1fd0dc54a150b0e898343a27c61305df4e7762c6730de8f395
-        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:dc1bde98e28d538b0364c9e0897f868ad33cc518190ce660a6d18c493224cdfd
+        scheduling.lpu.nvidia.com/compiler-snapshot-digest: sha256:fd4f1a0657ba30a3332515cdf4b52a5e4d76268c16d2a9a746d3cb9d5b08ae5e
+        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:db9e0e541c2c0bf14cc0493dde766368fc2cb6d3914a04c1f03a718ba206529b
         scheduling.lpu.nvidia.com/model: target
         scheduling.lpu.nvidia.com/role: agent
         scheduling.lpu.nvidia.com/workload-mode: v3HxLpuOnly
@@ -388,9 +343,8 @@ spec:
         minAvailable: 1
         podSpec:
           containers:
-          - command:
-            - /bin/quasar-entrypoint
-            env:
+          - env:
+            - name: LPX_LOCAL_PARTITION_IDS
             - name: LPX_DRAFT_MODEL_PATH
               value: /nfs/node-local-v3-hx-sd-draft
             - name: LPX_TARGET_MODEL_PATH
@@ -417,6 +371,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.annotations['scheduling.lpu.nvidia.com/model']
+            - name: MODEL_PATH
+              value: $(LPX_MODEL_PATH)
             - name: NATS_SERVER
               value: nats-address
             - name: POD_IP
@@ -437,7 +393,7 @@ spec:
                   fieldPath: metadata.uid
             - name: REDFISH_BMC_ENABLED
               value: "false"
-            image: example.invalid/lpu-runtime:test
+            image: example.invalid/quasar:test
             name: main
             readinessProbe:
               failureThreshold: 3
@@ -458,8 +414,6 @@ spec:
             volumeMounts:
             - mountPath: /nfs
               name: model-storage
-            - mountPath: /configs
-              name: config
             - mountPath: /dev
               name: host-dev
             - mountPath: /sys
@@ -523,15 +477,11 @@ spec:
               medium: Memory
               sizeLimit: 8Gi
             name: shared-memory
-          - configMap:
-              name: node-local-v3-hx-specdecode-1f7a-lpu-03a7edb74f46c6be
-            name: config
         replicas: 1
         roleName: agt2
     - annotations:
         lpx.nvidia.com/deployment-name: node-local-v3-hx-specdecode
-        nvidia.com/extra-resources-hash: 03a7edb74f46c6bee8d8436c085fe960e4971f4286f2d9e924ca1298f6ba19d6
-        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:16f320c88886458db865a3dc777302b02b8c7d0db3bc870f4cb9a7157ba0cfb3
+        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:ad323dadd323337f7356dce5d9a383afcb4dd9ec970199ac46c794c9e6d2bb56
         scheduling.lpu.nvidia.com/role: conductor
       labels:
         lpx.nvidia.com/serving: "true"
@@ -546,69 +496,15 @@ spec:
         minAvailable: 1
         podSpec:
           containers:
-          - args:
-            - --instance-model-name
-            - test/v3-specdecode
-            - --mpirun-path
-            - /bin/mpirun
-            - --mpi-ssh-cmd
-            - ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
-              -i /tmp/dynamo-lpu-ssh/private.key
-            - --agent-wd
-            - /tmp
-            - --conductor-bind-host
-            - 0.0.0.0
-            - --conductor-hostname
-            - $(POD_IP)
-            - --control-server-addr
-            - $(POD_IP):51045
-            - --json-logs
-            - --disable-tracing
-            - --mpi-use-tcp
-            - --agent-disable-auto-restart
-            - --agent-server-max-retries
-            - "60"
-            - --agent-server-retry-sleep-dur
-            - 2s
-            - --graceful-shutdown-timeout
-            - 0s
-            - --response-timeout
-            - 120s
-            - --frontend-type
-            - dynamo
-            - --endpoint-id
-            - dyn://$(DYN_NAMESPACE).backend.generate
-            - --store-backend
-            - kubernetes
-            - --allocation
-            - $(LPX_ALLOCATION)
-            - --agent-env-vars
-            - BMC_SSH_ENABLED=false
-            - --agent-env-vars
-            - LPU_FPGA_AUTOMATIC_JTAG_RECOVERY=false
-            - --agent-env-vars
-            - LPU_FPGA_RECONFIGURE_METHOD=cvp
-            - --agent-env-vars
-            - LPU_PARTITION_RUNNER_DATAPLANE=pcie
-            - --agent-env-vars
-            - LPU_PARTITION_RUNNER_PCIE_SOURCE_PORT=33000
-            - --agent-env-vars
-            - LPU_RUNNER_OUTSTANDING_TASK_DRAIN_TIMEOUT_SECONDS=10
-            - --agent-env-vars
-            - LPU_VSAP_DIB_BARRIER_BEFORE_PUSH_ENABLED=true
-            - --agent-env-vars
-            - LPU_VSAP_MAX_TENSORS_PER_CHUNK=4
-            - --agent-env-vars
-            - REDFISH_BMC_ENABLED=false
-            command:
-            - /bin/nova
-            env:
+          - env:
             - name: LPX_ALLOCATION
               value: agt0:agt1:agt2
             - name: LPX_DRAFT_MODEL_PATH
               value: /nfs/node-local-v3-hx-sd-draft
             - name: LPX_TARGET_MODEL_PATH
               value: /nfs/node-local-v3-hx-sd-target
+            - name: DRAFT_MODEL_PATH
+              value: $(LPX_DRAFT_MODEL_PATH)
             - name: DYN_COMPONENT
               value: lpx
             - name: DYN_DISCOVERY_BACKEND
@@ -623,27 +519,6 @@ spec:
               value: etcd-address
             - name: NATS_SERVER
               value: nats-address
-            - name: NOVA_DRAFT_MODEL_PATH
-              value: $(LPX_DRAFT_MODEL_PATH)
-            - name: NOVA_DRAFT_RESOLVED_PARTITIONS_DIR
-              value: /configs
-            - name: NOVA_MODEL_BASE_PATHS
-              value: /nfs
-            - name: NOVA_NODE_NAME_TEMPLATE
-              value: ${GROVE_PCSG_NAME}-${GROVE_PCSG_INDEX}-{rack}-{node}.${GROVE_HEADLESS_SERVICE}
-            - name: NOVA_PIPELINE_TYPE
-              value: SpecDecode
-            - name: NOVA_TARGET_MODEL_PATH
-              value: $(LPX_TARGET_MODEL_PATH)
-            - name: NOVA_TARGET_RESOLVED_PARTITIONS_DIR
-              value: /configs
-            - name: OMPI_ALLOW_RUN_AS_ROOT
-              value: "1"
-            - name: OMPI_ALLOW_RUN_AS_ROOT_CONFIRM
-              value: "1"
-            - name: OMPI_MCA_plm_rsh_args
-              value: -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
-                -o IdentityFile=/tmp/dynamo-lpu-ssh/private.key
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -660,7 +535,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
-            image: example.invalid/lpu-runtime:test
+            - name: TARGET_MODEL_PATH
+              value: $(LPX_TARGET_MODEL_PATH)
+            image: example.invalid/quasar:test
             name: main
             readinessProbe:
               failureThreshold: 3
@@ -676,8 +553,6 @@ spec:
             volumeMounts:
             - mountPath: /nfs
               name: model-storage
-            - mountPath: /configs
-              name: config
             - mountPath: /tmp/dynamo-lpu-ssh
               name: single-v2-ssh-key
             - mountPath: /dev/shm
@@ -724,9 +599,6 @@ spec:
             secret:
               defaultMode: 384
               secretName: ssh-secret
-          - configMap:
-              name: node-local-v3-hx-specdecode-1f7a-lpu-03a7edb74f46c6be
-            name: config
         replicas: 1
         roleName: cond
         startsAfter:
@@ -738,7 +610,7 @@ spec:
     podCliqueScalingGroups:
     - annotations:
         lpx.nvidia.com/deployment-name: node-local-v3-hx-specdecode
-        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:16f320c88886458db865a3dc777302b02b8c7d0db3bc870f4cb9a7157ba0cfb3
+        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:ad323dadd323337f7356dce5d9a383afcb4dd9ec970199ac46c794c9e6d2bb56
       cliqueNames:
       - cond
       - agt0

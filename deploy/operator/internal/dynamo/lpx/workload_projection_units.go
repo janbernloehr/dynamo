@@ -32,9 +32,6 @@ func appendUnitModelProjections(dst []*ModelProjection, intent ModelProjectionIn
 	}
 
 	devicesPerNode := build.partitions[0].devicesPerNode
-	if build.family == BuildFamilyXT && devicesPerNode != 8 {
-		return nil, fmt.Errorf("%w: LP20 nodes projection requires devicesPerNode=8, got %d", ErrUnsupportedRuntime, devicesPerNode)
-	}
 
 	var (
 		partitions    = make([]buildPartition, 0, len(units))
@@ -74,7 +71,6 @@ func appendUnitModelProjections(dst []*ModelProjection, intent ModelProjectionIn
 	}
 
 	// The scheduler reads placement from partitions and connectors alone.
-	allocationMetadata := json.RawMessage(`{}`)
 
 	// The compiler content ID covers placement and runtime I/O. Only operator
 	// inputs need separate fields in the coordination revision.
@@ -92,12 +88,10 @@ func appendUnitModelProjections(dst []*ModelProjection, intent ModelProjectionIn
 		dst = append(dst, &ModelProjection{
 			digest:                 transcript.sum(),
 			compilerSnapshotDigest: build.contentID,
-			contractFormat:         build.contractFormat,
 			runtimeBuildRef:        intent.RuntimeBuildRef,
 			model:                  intent.Models[index],
 			pipeline:               intent.Pipeline,
 			configuredBuild:        *build,
-			allocationMetadata:     allocationMetadata,
 			partitions:             partitions,
 			connectors:             connectors,
 			agentReplicas:          agentReplicas,
@@ -124,10 +118,10 @@ func projectUnitReservation(reservation deploymentcapnpv1.LpuReservation, family
 	partition.hxExtent = extent
 	if family == BuildFamilyHX {
 		if len(partition.hxExtent) == 0 {
-			if hosts != 1 || devicesPerNode != 16 {
-				return buildPartition{}, 0, fmt.Errorf("%w: LP30 size.nodes requires one host with devicesPerNode=16; use a supported size.hx", ErrUnsupportedRuntime)
+			if hosts != 1 {
+				return buildPartition{}, 0, fmt.Errorf("%w: LP30 size.nodes requires one host; use size.hx for multiple hosts", ErrUnsupportedRuntime)
 			}
-			partition.hxExtent = []int64{16, 1, 1, 1}
+			partition.hxExtent = []int64{int64(devicesPerNode), 1, 1, 1}
 		}
 	}
 
@@ -140,4 +134,16 @@ func projectUnitReservation(reservation deploymentcapnpv1.LpuReservation, family
 		}
 	}
 	return partition, hosts, nil
+}
+
+func xtShape(partition buildPartition) (lpxv1alpha1.Xt8888PartitionShape, error) {
+	// The scheduler shape names encode eight device positions per endpoint.
+	// Resource requests use the compiler-authored width independently.
+	chips := partition.effectiveNodeCount() * 8
+	switch chips {
+	case 8, 16, 24, 32, 40, 48, 56, 64, 96, 128:
+		return lpxv1alpha1.Xt8888PartitionShape(fmt.Sprintf("c%d", chips)), nil
+	default:
+		return "", fmt.Errorf("partition %d has unregistered XT shape c%d", uint32(partition.sourcePartitionID), chips)
+	}
 }

@@ -6,6 +6,7 @@
 package lpx
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -35,8 +36,8 @@ func TestUnitProjection(t *testing.T) {
 		lp30 = deploymentcapnpv1.LpuArchitecture_lp30
 	)
 	lp20Hybrid := testUnitBundle{
-		architecture: lp20, devicesPerNode: 8, hybrid: true, chains: [][]uint32{{1, 2}},
-		partitions: testUnitPartitions(16, nil, 0, 1, 2, 3),
+		architecture: lp20, devicesPerNode: 8, hybrid: true,
+		partitions: testUnitPartitions(16, 0, 1, 2, 3),
 		units: []testLPUUnit{
 			{Reservations: []testLPUReservation{testNodesReservation(2, 0)}},
 			{Reservations: []testLPUReservation{testNodesReservation(2, 1), testNodesReservation(2, 2)}, Connectors: []testLPUConnector{{}}},
@@ -57,12 +58,12 @@ func TestUnitProjection(t *testing.T) {
 		{
 			name: "LP20 chain joined by an xt8888Gap connector",
 			bundle: testUnitBundle{
-				architecture: lp20, devicesPerNode: 8, chains: [][]uint32{{1, 2}}, partitions: testUnitPartitions(8, nil, 1, 2),
+				architecture: lp20, devicesPerNode: 8, partitions: testUnitPartitions(8, 1, 2),
 				units: []testLPUUnit{{Reservations: []testLPUReservation{testNodesReservation(1, 1), testNodesReservation(1, 2)}, Connectors: []testLPUConnector{{}}}},
 			},
 			wantPartitions: []lpxv1alpha1.PartitionRequest{
-				{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 1, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC8)},
-				{ID: "partition-001", Ordinal: 1, CompilerPartitionID: 2, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC8)},
+				{ID: "partition-000", Ordinal: 0, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC8)},
+				{ID: "partition-001", Ordinal: 1, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC8)},
 			},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{{FromPartitionID: "partition-000", ToPartitionID: "partition-001", Requirement: xtGap}},
 			wantAgents:     2,
@@ -70,10 +71,10 @@ func TestUnitProjection(t *testing.T) {
 		{
 			name: "LP20 packed chain requests every chip of its hosts",
 			bundle: testUnitBundle{
-				architecture: lp20, devicesPerNode: 8, chains: [][]uint32{{1, 2, 3, 4, 5, 6}}, partitions: testUnitPartitions(4, nil, 1, 2, 3, 4, 5, 6),
+				architecture: lp20, devicesPerNode: 8, partitions: testUnitPartitions(4, 1, 2, 3, 4, 5, 6),
 				units: testSingleUnits(testNodesReservation(3, 1, 2, 3, 4, 5, 6)),
 			},
-			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 1, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC24)}},
+			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC24)}},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{},
 			wantAgents:     3,
 		},
@@ -81,55 +82,55 @@ func TestUnitProjection(t *testing.T) {
 		{
 			name: "LP30 single partition requests its HX extent",
 			bundle: testUnitBundle{
-				architecture: lp30, devicesPerNode: 16, partitions: testUnitPartitions(32, []uint32{16, 1, 2, 1}, 1),
+				architecture: lp30, devicesPerNode: 16, partitions: testUnitPartitions(32, 1),
 				units: testSingleUnits(testHXReservation(1, 2, 1, 1)),
 			},
-			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 1, Extent: &[]int64{16, 1, 2, 1}}},
+			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, Extent: &[]int64{16, 1, 2, 1}}},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{},
 			wantAgents:     2,
 		},
 		{
 			name: "LP30 two full racks keep the supported product extent",
 			bundle: testUnitBundle{
-				architecture: lp30, devicesPerNode: 16, partitions: testUnitPartitions(512, nil, 0),
+				architecture: lp30, devicesPerNode: 16, partitions: testUnitPartitions(512, 0),
 				units: testSingleUnits(testHXReservation(8, 2, 2, 0)),
 			},
-			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 0, Extent: &[]int64{16, 8, 2, 2}}},
+			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, Extent: &[]int64{16, 8, 2, 2}}},
 			wantAgents:     32,
 		},
 		{
 			name: "LP30 partial selection requests its one partition",
 			bundle: testUnitBundle{
-				architecture: lp30, devicesPerNode: 16, partSelect: []uint32{3}, partitions: testUnitPartitions(16, []uint32{16, 1, 1, 1}, 3),
+				architecture: lp30, devicesPerNode: 16, partSelect: []uint32{3}, partitions: testUnitPartitions(16, 3),
 				units: testSingleUnits(testHXReservation(1, 1, 1, 3)),
 			},
-			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 3, Extent: &[]int64{16, 1, 1, 1}}},
+			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, Extent: &[]int64{16, 1, 1, 1}}},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{},
 			wantAgents:     1,
 		},
 		{
 			name: "LP30 packed chain requests the packed hosts' extent",
 			bundle: testUnitBundle{
-				architecture: lp30, devicesPerNode: 16, chains: [][]uint32{{1, 2, 3, 4}}, partitions: testUnitPartitions(8, []uint32{8, 1, 1, 1}, 1, 2, 3, 4),
+				architecture: lp30, devicesPerNode: 16, partitions: testUnitPartitions(8, 1, 2, 3, 4),
 				units: testSingleUnits(testHXReservation(2, 1, 1, 1, 2, 3, 4)),
 			},
-			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 1, Extent: &[]int64{16, 2, 1, 1}}},
+			wantPartitions: []lpxv1alpha1.PartitionRequest{{ID: "partition-000", Ordinal: 0, Extent: &[]int64{16, 2, 1, 1}}},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{},
 			wantAgents:     2,
 		},
 		{
 			name: "LP30 chain carries the compiler's device pairs",
 			bundle: testUnitBundle{
-				architecture: lp30, devicesPerNode: 16, chains: [][]uint32{{1, 2}},
-				partitions: []testUnitPartition{{id: 1, numChips: 32, shape: []uint32{16, 1, 2, 1}}, {id: 2, numChips: 16, shape: []uint32{16, 1, 1, 1}}},
+				architecture: lp30, devicesPerNode: 16,
+				partitions: []testUnitPartition{{id: 1, numChips: 32}, {id: 2, numChips: 16}},
 				units: []testLPUUnit{{
 					Reservations: []testLPUReservation{testHXReservation(1, 2, 1, 1), testHXReservation(1, 1, 1, 2)},
 					Connectors:   []testLPUConnector{{HX: true, Pairs: [][2]uint32{{16, 0}, {31, 15}}}},
 				}},
 			},
 			wantPartitions: []lpxv1alpha1.PartitionRequest{
-				{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 1, Extent: &[]int64{16, 1, 2, 1}},
-				{ID: "partition-001", Ordinal: 1, CompilerPartitionID: 2, Extent: &[]int64{16, 1, 1, 1}},
+				{ID: "partition-000", Ordinal: 0, Extent: &[]int64{16, 1, 2, 1}},
+				{ID: "partition-001", Ordinal: 1, Extent: &[]int64{16, 1, 1, 1}},
 			},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{{
 				FromPartitionID: "partition-000", ToPartitionID: "partition-001",
@@ -146,9 +147,9 @@ func TestUnitProjection(t *testing.T) {
 			bundle:    lp20Hybrid,
 			selection: &dynamov1beta1.LPXLocalPartitions{Mode: dynamov1beta1.LPXLocalPartitionsModeIDs, IDs: []int64{0}},
 			wantPartitions: []lpxv1alpha1.PartitionRequest{
-				{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 1, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
-				{ID: "partition-001", Ordinal: 1, CompilerPartitionID: 2, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
-				{ID: "partition-002", Ordinal: 2, CompilerPartitionID: 3, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
+				{ID: "partition-000", Ordinal: 0, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
+				{ID: "partition-001", Ordinal: 1, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
+				{ID: "partition-002", Ordinal: 2, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
 			},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{{FromPartitionID: "partition-000", ToPartitionID: "partition-001", Requirement: xtGap}},
 			wantAgents:     6,
@@ -159,8 +160,8 @@ func TestUnitProjection(t *testing.T) {
 			bundle:    lp20Hybrid,
 			selection: &dynamov1beta1.LPXLocalPartitions{Mode: dynamov1beta1.LPXLocalPartitionsModeIDs, IDs: []int64{1}},
 			wantPartitions: []lpxv1alpha1.PartitionRequest{
-				{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 0, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
-				{ID: "partition-001", Ordinal: 1, CompilerPartitionID: 3, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
+				{ID: "partition-000", Ordinal: 0, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
+				{ID: "partition-001", Ordinal: 1, XtShape: new(lpxv1alpha1.Xt8888PartitionShapeC16)},
 			},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{},
 			wantAgents:     4,
@@ -188,8 +189,8 @@ func TestUnitProjection(t *testing.T) {
 		{
 			name: "LP30 hybrid keeps one reservation per chain member",
 			bundle: testUnitBundle{
-				architecture: lp30, devicesPerNode: 16, hybrid: true, chains: [][]uint32{{2, 3}},
-				partitions: testUnitPartitions(16, []uint32{16, 1, 1, 1}, 1, 2, 3, 4),
+				architecture: lp30, devicesPerNode: 16, hybrid: true,
+				partitions: testUnitPartitions(16, 1, 2, 3, 4),
 				units: []testLPUUnit{
 					{Reservations: []testLPUReservation{testHXReservation(1, 1, 1, 1)}},
 					{
@@ -201,9 +202,9 @@ func TestUnitProjection(t *testing.T) {
 			},
 			selection: &dynamov1beta1.LPXLocalPartitions{Mode: dynamov1beta1.LPXLocalPartitionsModeIDs, IDs: []int64{1}},
 			wantPartitions: []lpxv1alpha1.PartitionRequest{
-				{ID: "partition-000", Ordinal: 0, CompilerPartitionID: 2, Extent: &[]int64{16, 1, 1, 1}},
-				{ID: "partition-001", Ordinal: 1, CompilerPartitionID: 3, Extent: &[]int64{16, 1, 1, 1}},
-				{ID: "partition-002", Ordinal: 2, CompilerPartitionID: 4, Extent: &[]int64{16, 1, 1, 1}},
+				{ID: "partition-000", Ordinal: 0, Extent: &[]int64{16, 1, 1, 1}},
+				{ID: "partition-001", Ordinal: 1, Extent: &[]int64{16, 1, 1, 1}},
+				{ID: "partition-002", Ordinal: 2, Extent: &[]int64{16, 1, 1, 1}},
 			},
 			wantConnectors: []lpxv1alpha1.PropSyncConnectorRequest{{
 				FromPartitionID: "partition-000", ToPartitionID: "partition-001",
@@ -219,7 +220,7 @@ func TestUnitProjection(t *testing.T) {
 		{
 			name: "LP20 LPU-only partitions without a chain",
 			bundle: testUnitBundle{
-				architecture: lp20, devicesPerNode: 8, partitions: testUnitPartitions(8, nil, 1, 2),
+				architecture: lp20, devicesPerNode: 8, partitions: testUnitPartitions(8, 1, 2),
 				units: testSingleUnits(testNodesReservation(1, 1), testNodesReservation(1, 2)),
 			},
 			wantErr: "unsupported LPX runtime: LPU-only workloads require exactly one lpuUnits entry per model; this bundle has 2",
@@ -227,7 +228,7 @@ func TestUnitProjection(t *testing.T) {
 		{
 			name: "LP30 LPU-only partitions without a chain",
 			bundle: testUnitBundle{
-				architecture: lp30, devicesPerNode: 16, partitions: testUnitPartitions(16, []uint32{16, 1, 1, 1}, 1, 2),
+				architecture: lp30, devicesPerNode: 16, partitions: testUnitPartitions(16, 1, 2),
 				units: testSingleUnits(testHXReservation(1, 1, 1, 1), testHXReservation(1, 1, 1, 2)),
 			},
 			wantErr: "unsupported LPX runtime: LPU-only workloads require exactly one lpuUnits entry per model; this bundle has 2",
@@ -235,7 +236,7 @@ func TestUnitProjection(t *testing.T) {
 		{
 			name: "LP20 refuses HX reservation size",
 			bundle: testUnitBundle{
-				architecture: lp20, devicesPerNode: 8, partitions: testUnitPartitions(8, nil, 0),
+				architecture: lp20, devicesPerNode: 8, partitions: testUnitPartitions(8, 0),
 				units: testSingleUnits(testHXReservation(1, 1, 1, 0)),
 			},
 			wantErr: "unsupported LPX runtime: LP20 reservations require size.nodes, not size.hx",
@@ -243,7 +244,7 @@ func TestUnitProjection(t *testing.T) {
 		{
 			name: "LP20 hosts without a registered XT shape",
 			bundle: testUnitBundle{
-				architecture: lp20, devicesPerNode: 8, partitions: testUnitPartitions(72, nil, 1),
+				architecture: lp20, devicesPerNode: 8, partitions: testUnitPartitions(72, 1),
 				units: testSingleUnits(testNodesReservation(9, 1)),
 			},
 			wantErr: "partition 1 has unregistered XT shape c72",
@@ -273,7 +274,11 @@ func TestUnitProjection(t *testing.T) {
 			}
 			require.Equal(t, test.wantPartitions, spec.Partitions)
 			require.Equal(t, test.wantConnectors, spec.PropSyncConnectors)
-			require.JSONEq(t, `{}`, string(spec.AllocationMetadata.Raw))
+			encoded, err := json.Marshal(spec)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), `"allocationMetadata"`)
+			require.NotContains(t, string(encoded), `"compilerPartitionId"`)
+			require.NotContains(t, string(encoded), `"compilerMetadataDigest"`)
 			require.Equal(t, test.wantAgents, projection.AgentReplicas())
 			require.Equal(t, test.wantLocalIDs, projection.localPartitionIDs)
 
@@ -289,7 +294,7 @@ func TestUnitProjectionBounds(t *testing.T) {
 	bundle := testUnitBundle{architecture: deploymentcapnpv1.LpuArchitecture_lp30, devicesPerNode: width, hybrid: true}
 	chain := testLPUUnit{}
 	for id := range uint32(count) {
-		bundle.partitions = append(bundle.partitions, testUnitPartition{id: id, numChips: width, shape: []uint32{width, 1, 1, 1}})
+		bundle.partitions = append(bundle.partitions, testUnitPartition{id: id, numChips: width})
 		chain.Reservations = append(chain.Reservations, testHXReservation(1, 1, 1, id))
 		if id > 0 {
 			connector := testLPUConnector{HX: true}
@@ -314,8 +319,8 @@ func TestUnitProjectionDigest(t *testing.T) {
 
 	t.Log("Decode an LP30 chain and the same chain with different compiler device pairs")
 	bundle := testUnitBundle{
-		architecture: deploymentcapnpv1.LpuArchitecture_lp30, devicesPerNode: 16, hybrid: true, chains: [][]uint32{{1, 2}},
-		partitions: testUnitPartitions(16, []uint32{16, 1, 1, 1}, 1, 2, 3),
+		architecture: deploymentcapnpv1.LpuArchitecture_lp30, devicesPerNode: 16, hybrid: true,
+		partitions: testUnitPartitions(16, 1, 2, 3),
 		units: []testLPUUnit{
 			{Reservations: []testLPUReservation{testHXReservation(1, 1, 1, 1), testHXReservation(1, 1, 1, 2)}, Connectors: []testLPUConnector{testHXConventionConnector(1, 16)}},
 			{Reservations: []testLPUReservation{testHXReservation(1, 1, 1, 3)}},
@@ -352,13 +357,13 @@ func TestUnitProjectionConsumerLimits(t *testing.T) {
 		wantErr             string
 	}{
 		{name: "one full HX host", width: 16, chips: 16, hosts: 1},
-		{name: "off-profile width", width: 8, chips: 8, hosts: 1, wantErr: "devicesPerNode=16"},
+		{name: "off-profile width", width: 8, chips: 8, hosts: 1},
 		{name: "multiple nodes do not identify an extent", width: 16, chips: 32, hosts: 2, wantErr: "LP30 size.nodes"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Log("Accept valid units independently of the operator's execution profile")
 			bundle := testUnitBundle{architecture: deploymentcapnpv1.LpuArchitecture_lp30, devicesPerNode: tc.width, lpxMode: true,
-				partitions: testUnitPartitions(tc.chips, nil, 0), units: testSingleUnits(testNodesReservation(tc.hosts, 0))}
+				partitions: testUnitPartitions(tc.chips, 0), units: testSingleUnits(testNodesReservation(tc.hosts, 0))}
 			build, err := acquireTestUnitBundle(t, bundle)
 			require.NoError(t, err)
 			t.Log("Apply the supported operator mapping without an XT fallback")
@@ -370,7 +375,7 @@ func TestUnitProjectionConsumerLimits(t *testing.T) {
 			}
 			require.NoError(t, err)
 			request := projections[0].RequestSpec(&MaterializationPlan{}, "agents")
-			require.Equal(t, &[]int64{16, 1, 1, 1}, request.Partitions[0].Extent)
+			require.Equal(t, &[]int64{int64(tc.width), 1, 1, 1}, request.Partitions[0].Extent)
 			require.Nil(t, request.Partitions[0].XtShape)
 		})
 	}
@@ -382,21 +387,17 @@ func TestUnitProjectionXTWidth(t *testing.T) {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
 			t.Log("Decode a valid LP20 reservation at the artifact's host width")
 			bundle := testUnitBundle{architecture: deploymentcapnpv1.LpuArchitecture_lp20, devicesPerNode: width, lpxMode: true,
-				partitions: testUnitPartitions(16, nil, 0), units: testSingleUnits(testNodesReservation(16/width, 0))}
+				partitions: testUnitPartitions(width, 0), units: testSingleUnits(testNodesReservation(1, 0))}
 			build, err := acquireTestUnitBundle(t, bundle)
 			require.NoError(t, err)
-			t.Log("Project only the scheduler's physical XT width so host and Agent counts agree")
+			t.Log("Preserve the authored host count independently of the resource width")
 			projections, err := projectTestUnits(build, nil)
-			if width != 8 {
-				require.ErrorIs(t, err, ErrUnsupportedRuntime)
-				require.ErrorContains(t, err, "LP20 nodes projection requires devicesPerNode=8")
-				require.Nil(t, projections)
-				return
-			}
+
 			require.NoError(t, err)
-			require.Equal(t, 2, projections[0].AgentReplicas())
+			require.Equal(t, 1, projections[0].AgentReplicas())
+			require.Equal(t, int(width), projections[0].partitions[0].devicesPerNode)
 			request := projections[0].RequestSpec(&MaterializationPlan{}, "agents")
-			require.Equal(t, new(lpxv1alpha1.Xt8888PartitionShapeC16), request.Partitions[0].XtShape)
+			require.Equal(t, new(lpxv1alpha1.Xt8888PartitionShapeC8), request.Partitions[0].XtShape)
 		})
 	}
 }
@@ -416,7 +417,7 @@ func TestUnitProjectionRootAccess(t *testing.T) {
 			t.Log("Fail at the mapping use site instead of indexing or using a missing root")
 			build, err := acquireTestUnitBundle(t, testUnitBundle{
 				architecture: deploymentcapnpv1.LpuArchitecture_lp20, devicesPerNode: 8,
-				hybrid: tc.local != nil, partitions: testUnitPartitions(8, nil, 0), units: tc.units,
+				hybrid: tc.local != nil, partitions: testUnitPartitions(8, 0), units: tc.units,
 			})
 			require.NoError(t, err)
 			_, err = projectTestUnits(build, tc.local)

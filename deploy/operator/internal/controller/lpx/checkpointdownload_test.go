@@ -30,6 +30,7 @@ import (
 	"github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx"
 	commoncapnpv1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/common/v1"
 	deploymentcapnpv1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/deployment/v1"
+	"github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/testfixture"
 )
 
 const (
@@ -473,7 +474,7 @@ func writeLPXCheckpointTestBuild(
 	config, err := deployment.NewConfig()
 	require.NoError(t, err)
 	config.SetCompilationMode(mode)
-	config.SetNumLpuNodes(uint32(len(partitionIDs) * 2))
+	testfixture.WriteUnits(t, config, connectedXTUnits(2, 7, 8))
 	program, err := config.NewProgram()
 	require.NoError(t, err)
 	program.SetBatchSize(1)
@@ -482,13 +483,6 @@ func writeLPXCheckpointTestBuild(
 	runtimeIO.SetProtocol(deploymentcapnpv1.RuntimeIoProtocol_fpgaRoce)
 	runtimeIO.SetIoFpgaCount(1)
 	runtimeIO.SetFanoutFactor(1)
-	chains, err := config.NewSelectedPropSyncChains(1)
-	require.NoError(t, err)
-	chainIDs, err := chains.At(0).NewPartitionIds(int32(len(partitionIDs)))
-	require.NoError(t, err)
-	for index, partitionID := range partitionIDs {
-		chainIDs.Set(index, uint32(partitionID))
-	}
 	checkpoint, err := deployment.NewCheckpoint()
 	require.NoError(t, err)
 	checkpoint.SetProvider(deploymentcapnpv1.CheckpointProvider_huggingface)

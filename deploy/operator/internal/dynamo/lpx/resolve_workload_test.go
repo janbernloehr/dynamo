@@ -11,10 +11,11 @@ import (
 	"slices"
 	"testing"
 
+	commoncapnpv1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/common/v1"
+
 	"github.com/ai-dynamo/dynamo/deploy/operator/api/v1beta1"
 	commonconsts "github.com/ai-dynamo/dynamo/deploy/operator/internal/consts"
 	deploymentcapnpv1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/deployment/v1"
-	manifestcapnp "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/manifest/v2"
 	lpxv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/scheduler/v1alpha1"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +32,7 @@ func TestResolveWorkloadClassifiesSnapshotFailures(t *testing.T) {
 
 	t.Log("Distinguish missing manifests from malformed bytes and invalid compiler contracts")
 	reader := fake.NewClientBuilder().Build()
-	manifest := newManifestV2ContractFixture(t)
+	manifest := newDeploymentV1ContractFixture(t)
 	manifest.SetContractRevision(0)
 	payload, err := manifest.Message().Marshal()
 	require.NoError(t, err)
@@ -41,8 +42,8 @@ func TestResolveWorkloadClassifiesSnapshotFailures(t *testing.T) {
 		wantInvalid bool
 		wantErr     string
 	}{
-		{name: "missing", wantErr: gbuildManifestV2CapnpFile},
-		{name: "malformed", manifest: []byte("invalid"), wantInvalid: true, wantErr: "parsing manifest.v2.capnp.bin"},
+		{name: "missing", wantErr: gbuildDeploymentV1CapnpFile},
+		{name: "malformed", manifest: []byte("invalid"), wantInvalid: true, wantErr: "parsing deployment.v1.capnp.bin"},
 		{name: "invalid contract", manifest: payload, wantInvalid: true, wantErr: "contractRevision"},
 	}
 	for _, test := range tests {
@@ -52,7 +53,7 @@ func TestResolveWorkloadClassifiesSnapshotFailures(t *testing.T) {
 			buildDir := filepath.Join(registryDir, "build")
 			require.NoError(t, os.MkdirAll(buildDir, 0o700))
 			if test.manifest != nil {
-				writeManifestV2Payload(t, buildDir, test.manifest)
+				writeDeploymentPayload(t, buildDir, test.manifest)
 			}
 			registry, err := NewModelRegistry(registryDir, nil)
 			require.NoError(t, err)
@@ -110,9 +111,8 @@ func TestResolveWorkloadDerivesRuntimeShapeFromExecutionDevices(t *testing.T) {
 
 	t.Log("Run LPX-ingested LP20 and LP30 builds with CPU preparation without a GPU")
 	for _, fixture := range []testV3CapnpFixture{newV2CompilerFixture(), newV3CompilerFixture()} {
-		fixture.compilationMode = manifestcapnp.CompilationMode_lpx
-		fixture.selectedPropSyncChains = nil
-		fixture.partitions = append(fixture.partitions, testV3CapnpPartition{id: 0, deviceType: manifestcapnp.DeviceType_cpu})
+		fixture.compilationMode = deploymentcapnpv1.CompilationMode_lpx
+		fixture.partitions = append(fixture.partitions, testV3CapnpPartition{id: 0, deviceType: commoncapnpv1.DeviceType_cpu})
 		snapshot := acquireTestSnapshot(t, writeCompilerFixture(t, fixture))
 		source := staticModelRegistry{"build": snapshot}
 		workload, err := ResolveWorkload(t.Context(), reader, dgd, singleGroupComponents(t, dgd), source)
@@ -337,7 +337,7 @@ func TestResolveWorkloadSpecDecodeV2AndV3(t *testing.T) {
 					fixture.partitions[0].numChips = fixture.partitions[0].devicesPerNode / 2
 					fixture.partitions = []testV3CapnpPartition{fixture.partitions[0], fixture.partitions[0]}
 					fixture.partitions[1].id++
-					fixture.selectedPropSyncChains = [][]uint32{{fixture.partitions[0].id, fixture.partitions[1].id}}
+					fixture.units = testSingleUnits(testNodesReservation(1, fixture.partitions[0].id, fixture.partitions[1].id))
 					agentCounts[index], requestCounts[index] = 1, 1
 				}
 				snapshots[index] = acquireTestSnapshot(t, writeCompilerFixture(t, fixture))
@@ -435,7 +435,10 @@ func TestResolveWorkloadSpecDecodeV2AndV3(t *testing.T) {
 				require.EqualValues(t, agentCounts[index/2], plan.Agents[index].Replicas)
 				request := projection.RequestSpec(plan, plan.Agents[index].TemplateName)
 				require.Len(t, request.Partitions, requestCounts[index/2])
-				require.EqualValues(t, original[0].sourcePartitionID, request.Partitions[0].CompilerPartitionID)
+				for partitionIndex, mapping := range request.NodeLocal.PartitionMappings {
+					require.EqualValues(t, partitionIndex, mapping.ModelPartitionID)
+					require.Equal(t, request.Partitions[partitionIndex].ID, mapping.PartitionID)
+				}
 				require.Equal(t, projection.Model(), request.NodeLocal.Model)
 				if test.packed[index/2] {
 					require.Empty(t, request.PropSyncConnectors)
@@ -517,9 +520,9 @@ func TestResolveWorkloadPreservesAuthoredLaunch(t *testing.T) {
 func TestResolveWorkloadPlacesRuntimeSidecarWithTheEngine(t *testing.T) {
 	t.Log("Acquire single-Pod HX, two-Pod HX, four-Pod XT and hybrid builds")
 	multiPodHX := newV3CompilerFixture()
-	multiPodHX.selectedPropSyncChains = [][]uint32{{1, 2}}
+	multiPodHX.units = []testLPUUnit{{Reservations: []testLPUReservation{testNodesReservation(1, 1), testNodesReservation(1, 2)}, Connectors: []testLPUConnector{testHXConventionConnector(1, 16)}}}
 	multiPodHX.partitions = append(multiPodHX.partitions, testV3CapnpPartition{
-		id: 2, deviceType: manifestcapnp.DeviceType_lpu, topology: v3OpaqueTopology, numChips: 16, devicesPerNode: 16,
+		id: 2, deviceType: commoncapnpv1.DeviceType_lpu, topology: v3OpaqueTopology, numChips: 16, devicesPerNode: 16,
 	})
 	snapshots := map[string]*Build{
 		"hx":           acquireTestSnapshot(t, writeV3CompilerFixture(t)),
@@ -628,45 +631,28 @@ func TestExpandedModelNames(t *testing.T) {
 func acquireHybridTestSnapshot(t *testing.T) *Build {
 	t.Helper()
 	fixture := newV2CompilerFixture()
-	fixture.compilationMode = manifestcapnp.CompilationMode_lpx
-	fixture.selectedPropSyncChains = nil
-	fixture.partitions = append(fixture.partitions, testV3CapnpPartition{id: 11, deviceType: manifestcapnp.DeviceType_cuda})
+	fixture.compilationMode = deploymentcapnpv1.CompilationMode_lpx
+	fixture.partitions = append(fixture.partitions, testV3CapnpPartition{id: 11, deviceType: commoncapnpv1.DeviceType_cuda})
 	return acquireTestSnapshot(t, writeCompilerFixture(t, fixture))
 }
 
 func TestResolveUnitsFormatPerWorkload(t *testing.T) {
 	t.Parallel()
 	bundle := testUnitBundle{architecture: deploymentcapnpv1.LpuArchitecture_lp20, devicesPerNode: 8,
-		partitions: testUnitPartitions(8, nil, 0), units: testSingleUnits(testNodesReservation(1, 0))}
+		partitions: testUnitPartitions(8, 0), units: testSingleUnits(testNodesReservation(1, 0))}
 	units, err := acquireTestUnitBundle(t, bundle)
 	require.NoError(t, err)
+
 	bundle.units = nil
-	legacy, err := acquireTestUnitBundle(t, bundle)
+	_, err = acquireTestUnitBundle(t, bundle)
+	require.ErrorContains(t, err, "lpuUnits")
+	dgd := newSelectedTestDGD(t, "pair",
+		testLPXComponent("target", "target-build", v1beta1.ComponentRoleSpec{Name: v1beta1.ComponentRoleLPXConductor, PodTemplate: testLPXPodTemplate("runtime")}, v1beta1.ComponentRoleSpec{Name: v1beta1.ComponentRoleLPXAgent, PodTemplate: testLPXPodTemplate("runtime")}),
+		testLPXComponent("draft", "draft-build", v1beta1.ComponentRoleSpec{Name: v1beta1.ComponentRoleLPXAgent, PodTemplate: testLPXPodTemplate("runtime")}),
+	)
+	before := dgd.DeepCopy()
+	got, err := ResolveWorkload(t.Context(), fake.NewClientBuilder().Build(), dgd, singleGroupComponents(t, dgd), staticModelRegistry{"draft-build": units, "target-build": units})
+	require.Equal(t, before, dgd)
 	require.NoError(t, err)
-	for _, tc := range []struct {
-		name          string
-		draft, target *Build
-		wantErr       bool
-	}{
-		{"legacy pair", legacy, legacy, false}, {"units pair", units, units, false},
-		{"units draft and legacy target", units, legacy, true}, {"legacy draft and units target", legacy, units, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Log("Resolve the complete pair before rendering any live resource")
-			dgd := newSelectedTestDGD(t, "pair",
-				testLPXComponent("target", "target-build", v1beta1.ComponentRoleSpec{Name: v1beta1.ComponentRoleLPXConductor, PodTemplate: testLPXPodTemplate("runtime")}, v1beta1.ComponentRoleSpec{Name: v1beta1.ComponentRoleLPXAgent, PodTemplate: testLPXPodTemplate("runtime")}),
-				testLPXComponent("draft", "draft-build", v1beta1.ComponentRoleSpec{Name: v1beta1.ComponentRoleLPXAgent, PodTemplate: testLPXPodTemplate("runtime")}),
-			)
-			before := dgd.DeepCopy()
-			got, err := ResolveWorkload(t.Context(), fake.NewClientBuilder().Build(), dgd, singleGroupComponents(t, dgd), staticModelRegistry{"draft-build": tc.draft, "target-build": tc.target})
-			require.Equal(t, before, dgd)
-			if tc.wantErr {
-				require.ErrorContains(t, err, "mixes builds with and without lpuUnits")
-				require.Nil(t, got)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tc.target == units, got.placesLPUUnits())
-		})
-	}
+	require.Len(t, got.modelProjections, 2)
 }

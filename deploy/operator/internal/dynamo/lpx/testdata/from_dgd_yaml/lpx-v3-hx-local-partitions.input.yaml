@@ -45,11 +45,7 @@ spec:
                 mountPath: /run/openengine
             containers:
             - name: main
-              image: example.invalid/gpu-runtime:test
-              command:
-              - /opt/gpu-runtime
-              args:
-              - serve
+              image: example.invalid/cyborg:test
               startupProbe:
                 failureThreshold: 720
                 httpGet:
@@ -74,14 +70,14 @@ spec:
               volumeMounts:
               - name: model-storage
                 mountPath: /nfs
-              - name: config
-                mountPath: /configs
               - name: openengine
                 mountPath: /run/openengine
               resources:
                 claims:
                 - name: gpu
               env:
+              - name: MODEL_PATH
+                value: $(LPX_MODEL_PATH)
               - name: CYBORG_FPGA_GPI_REPLICA_INDEX
                 valueFrom:
                   fieldRef:
@@ -100,17 +96,13 @@ spec:
           spec:
             containers:
             - name: main
-              image: example.invalid/lpu-runtime:test
-              args:
-              - start
+              image: example.invalid/hydra:test
               resources:
                 limits:
                   hugepages-2Mi: 4Gi
                 requests:
                   cpu: '62'
                   hugepages-2Mi: 4Gi
-              command:
-              - /bin/hydra-entrypoint
               startupProbe:
                 exec:
                   command:
@@ -130,7 +122,7 @@ spec:
                 successThreshold: 1
                 timeoutSeconds: 1
               env:
-              - name: GAS_DIR
+              - name: MODEL_PATH
                 value: $(LPX_MODEL_PATH)
               - name: GLUE_RDMA_PATH_MTU
                 value: '1024'
@@ -149,8 +141,6 @@ spec:
               volumeMounts:
               - mountPath: /nfs
                 name: model-storage
-              - name: config
-                mountPath: /configs
               - name: hugepages
                 mountPath: /dev/hugepages
               - name: host-sys

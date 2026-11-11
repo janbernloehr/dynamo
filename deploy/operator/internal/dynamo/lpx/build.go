@@ -30,8 +30,7 @@ const (
 // check the execution and scheduling shapes they support.
 type Build struct {
 	// contentID identifies the exact compiler contract used to acquire this build.
-	contentID      string
-	contractFormat buildContractFormat
+	contentID string
 	// path is the absolute file or GCS reference of the build payload.
 	path string
 	// family is the physical LPU target family.
@@ -40,11 +39,7 @@ type Build struct {
 	hasCUDAPartitions bool
 	// partitions contains the normalized physical compiler partitions.
 	partitions []buildPartition
-	// selectedPropSyncChains contains source partition IDs grouped into selected prop-sync chains.
-	selectedPropSyncChains [][]int
-	// lpuUnits retains generated readers and their message through projection.
-	// An empty list selects legacy placement from partitions and chains.
-	lpuUnits deploymentcapnpv1.LpuUnit_List
+	lpuUnits   deploymentcapnpv1.LpuUnit_List
 	// standaloneTokenEmbeddings reports whether token embeddings occupy a standalone partition.
 	standaloneTokenEmbeddings bool
 	// supportsCPUEmbeddings reports whether standalone token embeddings may run on the CPU.
@@ -62,34 +57,21 @@ type Build struct {
 
 // buildPartition describes one normalized physical compiler partition.
 type buildPartition struct {
-	// family is explicit for units artifacts, whose legacy topology is not read.
+	// family is explicit for units artifacts, whose topology label is not read.
 	family BuildFamily
 	// sourcePartitionID is the compiler partition id used in artifacts and
-	// selected prop-sync chains. It is not the slice index after sorting/filtering.
+	// unit reservations. It is not the slice index after sorting/filtering.
 	sourcePartitionID int
 	// partPath is the nonempty relative gas-dir fragment under the build payload.
 	partPath string
-	// numChips is the chip count declared by the compiler manifest.
-	numChips int
-	// topology identifies compatible subnode stages for PropSync packing.
-	topology string
-	// devicesPerNode is the number of chips per physical node in the compiler manifest.
+	// numChips is the reservation host count times its devices per node.
+	numChips       int
 	devicesPerNode int
 	// hxExtent is the scheduler-facing four-dimensional HX allocation.
 	hxExtent []int64
-
-	// runtimeNodeCount sums physical endpoints for a collapsed hybrid chain;
-	// numChips retains the original root stage.
-	runtimeNodeCount int
 }
 
-// effectiveNodeCount returns the number of Agent endpoints assigned to the
-// partition. Source partitions derive it from topology; collapsed runtime
-// partitions preserve the sum of their physical scheduler endpoints.
 func (p buildPartition) effectiveNodeCount() int {
-	if p.runtimeNodeCount > 0 {
-		return p.runtimeNodeCount
-	}
 	return max(1, p.numChips/p.devicesPerNode)
 }
 

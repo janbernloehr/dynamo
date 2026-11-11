@@ -6,13 +6,11 @@
 package lpx
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 
 	dynamov1beta1 "github.com/ai-dynamo/dynamo/deploy/operator/api/v1beta1"
 	lpxv1alpha1 "github.com/ai-dynamo/dynamo/deploy/operator/internal/dynamo/lpx/scheduler/v1alpha1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -59,17 +57,10 @@ type ModelProjection struct {
 	stage                  string
 	pipeline               Pipeline
 	configuredBuild        Build
-	contractFormat         buildContractFormat
-	allocationMetadata     json.RawMessage
 	// partitions describes the partitions requested from LPX. Packing can combine
 	// several configuredBuild.Partitions into one LPX partition.
-	partitions []buildPartition
-	connectors []lpxv1alpha1.PropSyncConnectorRequest
-	// propSyncEdges lists each position in partitions whose successor continues
-	// a selected prop-sync chain, for the legacy Cyborg Agent addresses. Only
-	// unpacked HX projections without units set it; XT collapses selected chains
-	// in configuredBuild instead.
-	propSyncEdges []int
+	partitions    []buildPartition
+	connectors    []lpxv1alpha1.PropSyncConnectorRequest
 	agentReplicas int
 	// localPartitionIDs lists the runtime partitions that run on the Cyborg GPU, in build order.
 	localPartitionIDs []int
@@ -78,12 +69,6 @@ type ModelProjection struct {
 	// contentID still hashes the whole deployment contract, so a rebuild whose
 	// recorded checkpoint differs has a new digest and rolls the workload.
 	checkpoint *Checkpoint
-}
-
-// placesLPUUnits reports whether the projection placed the compiler-owned LPU
-// units of its build rather than deriving placement from partitions and chains.
-func (p *ModelProjection) placesLPUUnits() bool {
-	return p.configuredBuild.lpuUnits.Len() != 0
 }
 
 func (p *ModelProjection) Checkpoint() *Checkpoint {
@@ -130,9 +115,8 @@ func (p *ModelProjection) RequestSpec(
 	for index, partition := range p.partitions {
 		partitionID := fmt.Sprintf("partition-%03d", index)
 		request := lpxv1alpha1.PartitionRequest{
-			ID:                  partitionID,
-			Ordinal:             int64(index),
-			CompilerPartitionID: int64(uint32(partition.sourcePartitionID)),
+			ID:      partitionID,
+			Ordinal: int64(index),
 		}
 		if p.configuredBuild.family == BuildFamilyXT {
 			shape, _ := xtShape(partition)
@@ -149,7 +133,6 @@ func (p *ModelProjection) RequestSpec(
 		}
 	}
 	spec := lpxv1alpha1.LPUPipelineRequestSpec{
-		AllocationMetadata: runtime.RawExtension{Raw: slices.Clone(p.allocationMetadata)},
 		MaterializationTarget: lpxv1alpha1.MaterializationTarget{
 			PodCliqueSetReplicaIndex: 0,
 			PodCliqueScalingGroupRef: &lpxv1alpha1.PodCliqueScalingGroupReference{

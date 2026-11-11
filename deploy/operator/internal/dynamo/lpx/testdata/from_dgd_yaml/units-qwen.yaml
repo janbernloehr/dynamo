@@ -16,8 +16,8 @@ spec:
     cliques:
     - annotations:
         lpx.nvidia.com/deployment-name: units-qwen
-        scheduling.lpu.nvidia.com/compiler-snapshot-digest: sha256:a4a6f14895c09d5f0ce5bff8e0f2387b0a9b0f54a84437143f0b73abfe39a322
-        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:c959d9b756db8a2ebc5e65295cf31f892b76032c1bb2a5cb6c4af18ebc206afc
+        scheduling.lpu.nvidia.com/compiler-snapshot-digest: sha256:9babd2c5e2ff887322504e2783c24510b59f4d63ec4f3d485304433988becccf
+        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:13357a0c163ba617aaccec9af32d83c32834852156fd6643510c64e9977c16a8
         scheduling.lpu.nvidia.com/model: default
         scheduling.lpu.nvidia.com/role: agent
         scheduling.lpu.nvidia.com/workload-mode: v3HxLpuOnly
@@ -97,7 +97,7 @@ spec:
         roleName: agt
     - annotations:
         lpx.nvidia.com/deployment-name: units-qwen
-        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:c959d9b756db8a2ebc5e65295cf31f892b76032c1bb2a5cb6c4af18ebc206afc
+        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:13357a0c163ba617aaccec9af32d83c32834852156fd6643510c64e9977c16a8
         scheduling.lpu.nvidia.com/role: conductor
       labels:
         lpx.nvidia.com/serving: "true"
@@ -177,7 +177,7 @@ spec:
     podCliqueScalingGroups:
     - annotations:
         lpx.nvidia.com/deployment-name: units-qwen
-        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:c959d9b756db8a2ebc5e65295cf31f892b76032c1bb2a5cb6c4af18ebc206afc
+        scheduling.lpu.nvidia.com/dynamo-workload-digest: sha256:13357a0c163ba617aaccec9af32d83c32834852156fd6643510c64e9977c16a8
       cliqueNames:
       - cond
       - agt

@@ -2,7 +2,7 @@
   "fixtures": [
     {
       "name": "subnode8",
-      "sha256": "904cd553ab100ffae21ffe2f77b5dc55293871b1a7277714a8ff5d799f20dd81",
+      "sha256": "855ceb41d8eebfd74680584b94ae61ba5a031d18e3bb4567ad2a8756d8ce1a86",
       "partitions": [
         {
           "id": 7,
@@ -17,11 +17,14 @@
           ]
         }
       ],
-      "selected_chain": []
+      "deployment_revision": 2,
+      "unit_partition_ids": [
+        7
+      ]
     },
     {
       "name": "cross_hemi32",
-      "sha256": "afad7b3ed003f240110d68fb975b5d3fc77351cf877f0b02ac65df901251afc9",
+      "sha256": "ad451c04df694c12bd0cdb4a5e729a20bddfc78fe2c182355be86ac4c424419a",
       "partitions": [
         {
           "id": 7,
@@ -36,11 +39,14 @@
           ]
         }
       ],
-      "selected_chain": []
+      "deployment_revision": 2,
+      "unit_partition_ids": [
+        7
+      ]
     },
     {
       "name": "rack256",
-      "sha256": "223423f19dd864331d9cd95c43cad6d42e41ae673519d6f6ff7bd6c876d77147",
+      "sha256": "5a0f4c6af43b38dee326cdd2486490bc26ccb4a86a5e1a607be613afd4f8070d",
       "partitions": [
         {
           "id": 7,
@@ -55,11 +61,14 @@
           ]
         }
       ],
-      "selected_chain": []
+      "deployment_revision": 2,
+      "unit_partition_ids": [
+        7
+      ]
     },
     {
       "name": "connected_chain",
-      "sha256": "df4bc04bd1c014bad668a55ce577109274df7b427f5b454600860b3bfc2d80b0",
+      "sha256": "4a2c594bb3b5c0824d83f4c7b38b1450ad7b87eed4a0feb9147ec8218ef3e866",
       "partitions": [
         {
           "id": 7,
@@ -86,7 +95,8 @@
           ]
         }
       ],
-      "selected_chain": [
+      "deployment_revision": 2,
+      "unit_partition_ids": [
         7,
         8
       ]
