@@ -1,7 +1,7 @@
 #  SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #  SPDX-License-Identifier: Apache-2.0
 
-"""Metrics-focused SGLang processor tests with lightweight SGLang stubs."""
+"""SGLang processor metrics and import tests with lightweight backend stubs."""
 
 import asyncio
 import builtins
@@ -15,6 +15,7 @@ from _routed_engine_fakes import FakeRoutedEngine
 pytestmark = [
     pytest.mark.unit,
     pytest.mark.sglang,
+    pytest.mark.core,
     pytest.mark.gpu_0,
     pytest.mark.pre_merge,
 ]
@@ -157,6 +158,12 @@ class _PostProcessor:
 
 def _load_processor_module(module_stubs, tokenizer_module="sglang.srt.hf_transformers"):
     install_module, remove_module = module_stubs
+    for name in (
+        "sglang.srt.hf_transformers",
+        "sglang.srt.utils.hf_transformers",
+        "sglang.srt.utils.hf_transformers_utils",
+    ):
+        remove_module(name)
     _install_sglang_stubs(install_module, tokenizer_module)
     _install_module(install_module, "dynamo._internal", ModelDeploymentCard=object)
     # Importing common.utils initializes native bindings absent from this fixture.
